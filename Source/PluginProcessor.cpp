@@ -386,10 +386,22 @@ void KickDrumAudioProcessor::setStateInformation (const void* data, int sizeInBy
     state.removeChild (ui, nullptr);
     apvts.replaceState (state);
 
-    // replaceState skips parameters whose stored value didn't change, which leaves the host's
-    // copy of a bool parameter at whatever in-between value it last sent: push every value back.
+    // replaceState skips a parameter whose adapter already holds the restored value, but a bool
+    // or choice parameter can hold an unsnapped raw value (e.g. 0.29 for "off"). Push every value
+    // so the parameters exactly match the restored state.
     for (auto* p : getParameters())
-        p->setValueNotifyingHost (p->getValue());
+    {
+        if (auto* param = dynamic_cast<RangedAudioParameter*> (p))
+        {
+            const auto node = state.getChildWithProperty ("id", param->getParameterID());
+            if (! node.isValid() || ! node.hasProperty ("value"))
+                continue;
+
+            const float target = param->convertTo0to1 ((float) node.getProperty ("value"));
+            if (! approximatelyEqual (param->getValue(), target))
+                param->setValueNotifyingHost (target);
+        }
+    }
 
     if (samples.isValid())
     {
