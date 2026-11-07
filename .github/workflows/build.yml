@@ -1,0 +1,103 @@
+name: Build and test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+# On failure, steps publish a summary of the log as one annotation (readable via the API),
+# using this helper: annotate <title> <file>
+env:
+  ANNOTATE: |
+    annotate() { echo "::error title=$1::$(awk 'BEGIN { ORS = "%0A" } { gsub(/%/, "%25"); sub(/\r$/, ""); print }' "$2")"; }
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Configure
+        run: cmake -B build -A x64
+
+      - name: Build VST3
+        id: build
+        shell: bash
+        run: |
+          eval "$ANNOTATE"
+          set +e   # GitHub runs bash with -eo pipefail; keep going so the summary gets written
+          cmake --build build --config Release --target KickDrum_VST3 --parallel 2>&1 | tee build.log
+          status=${PIPESTATUS[0]}
+          if [ $status -ne 0 ]; then
+            { grep -iE "error|fatal" build.log | sort -u | head -40 || true; echo "----- last lines -----"; tail -25 build.log; } > summary.txt
+            annotate "Windows build failed" summary.txt
+          fi
+          exit $status
+
+      - name: Build unit tests
+        if: always() && steps.build.outcome == 'success'
+        shell: bash
+        run: |
+          eval "$ANNOTATE"
+          set +e
+          cmake --build build --config Release --target KickDrumTests --parallel 2>&1 | tee tests-build.log
+          status=${PIPESTATUS[0]}
+          if [ $status -ne 0 ]; then
+            { grep -iE "error|fatal" tests-build.log | sort -u | head -40 || true; } > summary.txt
+            annotate "Windows test build failed" summary.txt
+          fi
+          exit $status
+
+      - name: Unit tests
+        shell: bash
+        run: |
+          eval "$ANNOTATE"
+          set +e   # GitHub runs bash with -eo pipefail; keep going so the summary gets written
+          build/KickDrumTests_artefacts/Release/KickDrumTests.exe 2>&1 | tee tests.log
+          status=${PIPESTATUS[0]}
+          if [ $status -ne 0 ]; then
+            { grep -B2 "!!!" tests.log | head -40 || true; echo "----- last lines -----"; tail -30 tests.log; } > summary.txt
+            annotate "Unit tests failed" summary.txt
+          fi
+          exit $status
+
+      - name: pluginval (strictness 10)
+        shell: bash
+        run: |
+          curl -sSL -o pluginval.zip https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_Windows.zip
+          7z x -y pluginval.zip > /dev/null
+          ./pluginval.exe --strictness-level 10 --validate-in-process --timeout-ms 600000 \
+            "build/KickDrum_artefacts/Release/VST3/KickDrum.vst3"
+
+      # Also publish the zipped VST3 to a branch, so it can be fetched with plain git.
+      - name: Publish VST3 to builds-windows branch
+        if: always() && steps.build.outcome == 'success' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          mkdir out
+          (cd build/KickDrum_artefacts/Release/VST3 && 7z a -tzip "$GITHUB_WORKSPACE/out/KickDrum-VST3-Windows-x64.zip" "KickDrum.vst3" '-xr!*.pdb' > /dev/null)
+          # debug symbols for reading crash dumps (kept out of the plugin zip)
+          find build -iname "KickDrum*.pdb" -not -path "*/CMakeFiles/*" -exec 7z a -tzip "$GITHUB_WORKSPACE/out/KickDrum-VST3-Windows-x64-symbols.zip" {} + > /dev/null || true
+          echo "${GITHUB_SHA}" > out/COMMIT.txt
+          cd out
+          git init -q -b builds-windows
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add .
+          git commit -qm "Windows VST3 build ${GITHUB_SHA::7}"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" builds-windows
+
+      - name: Upload plugin
+        if: always() && steps.build.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: KickDrum-VST3-Windows-x64
+          path: build/KickDrum_artefacts/Release/VST3/
