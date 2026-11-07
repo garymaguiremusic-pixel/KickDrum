@@ -386,6 +386,11 @@ void KickDrumAudioProcessor::setStateInformation (const void* data, int sizeInBy
     state.removeChild (ui, nullptr);
     apvts.replaceState (state);
 
+    // replaceState skips parameters whose stored value didn't change, which leaves the host's
+    // copy of a bool parameter at whatever in-between value it last sent: push every value back.
+    for (auto* p : getParameters())
+        p->setValueNotifyingHost (p->getValue());
+
     if (samples.isValid())
     {
         std::array<String, kNumBands> bandPaths;
