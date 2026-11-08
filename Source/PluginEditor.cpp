@@ -158,6 +158,8 @@ KickDrumAudioProcessorEditor::Content::Content (KickDrumAudioProcessor& p)
     addAndMakeVisible (outputView);
     addAndMakeVisible (outLengthLcd);
     addAndMakeVisible (outPeakLcd);
+    dragAudio.createFile = [this] { return exportAudio(); };
+    addAndMakeVisible (dragAudio);
     outLengthLcd.setTooltip ("How long the hit lasts (until it stays below -60 dBFS), in beats at the current tempo");
     outPeakLcd.setTooltip ("Peak level of one full-velocity hit");
     renderer.onRendered = [this] (std::shared_ptr<const RenderedHit> hit)
@@ -567,6 +569,11 @@ void KickDrumAudioProcessorEditor::Content::requestRenderIfNeeded (const KickBan
         return;
     lastRenderKey = key;
 
+    renderer.request (makeRenderRequest (info));
+}
+
+OutputRenderer::Request KickDrumAudioProcessorEditor::Content::makeRenderRequest (const KickBank::DisplayInfo& info) const
+{
     OutputRenderer::Request r;
     r.set = info.set;
     r.engine = processor.makeEngineSettings();
@@ -580,7 +587,25 @@ void KickDrumAudioProcessorEditor::Content::requestRenderIfNeeded (const KickBan
     for (auto& b : r.engine.bands)
         longest = jmax (longest, b.length());
     r.seconds = jlimit (kOutputViewBeats * beatSeconds, 8.0, longest + 0.2);
-    renderer.request (r);
+    return r;
+}
+
+File KickDrumAudioProcessorEditor::Content::exportAudio()
+{
+    const auto info = bank.getDisplayInfo();
+    if (info.set == nullptr)
+        return {};
+
+    // render now, so the file is exactly the current sound
+    const auto hit = OutputRenderer::render (makeRenderRequest (info));
+
+    const auto name = File::createLegalFileName (info.global.name.isEmpty() ? String ("Kick") : info.global.name);
+    const auto stamp = Time::getCurrentTime().formatted ("%Y%m%d-%H%M%S");
+    const auto folder = File::getSpecialLocation (File::userDocumentsDirectory).getChildFile ("KickDrum").getChildFile ("Exports");
+    // a new file every time: the DAW may keep referring to files it was given earlier
+    const auto file = folder.getNonexistentChildFile ("KickDrum " + name + " " + noteName (processor.getTailNote())
+                                                          + " " + String (roundToInt (processor.getTempo())) + "BPM " + stamp, ".wav", false);
+    return OutputRenderer::writeWav (*hit, file) ? file : File();
 }
 
 //==============================================================================
@@ -606,6 +631,7 @@ void KickDrumAudioProcessorEditor::Content::resized()
     outputView.setBounds (12, 756, 900, 122);
     outLengthLcd.setBounds (920, 790, 168, 26);
     outPeakLcd.setBounds (920, 822, 168, 26);
+    dragAudio.setBounds (920, 852, 168, 26);
 
     // Bands
     for (int b = 0; b < kNumBands; ++b)

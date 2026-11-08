@@ -7,6 +7,7 @@
 #include "UI/BrowserPanel.h"
 #include "UI/Controls.h"
 #include "UI/KickDisplays.h"
+#include "UI/DragAudioHandle.h"
 
 //==============================================================================
 /**
@@ -93,6 +94,9 @@ private:
         kd::OutputRenderer renderer;
         juce::int64 lastRenderKey = 0;
         void requestRenderIfNeeded (const kd::KickBank::DisplayInfo&);
+        kd::OutputRenderer::Request makeRenderRequest (const kd::KickBank::DisplayInfo&) const;
+        juce::File exportAudio();      // renders the current kick to a WAV for Drag Audio Out
+        DragAudioHandle dragAudio;
 
         // Bands
         std::array<std::unique_ptr<BandControls>, kd::kNumBands> bands;

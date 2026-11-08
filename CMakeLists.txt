@@ -42,6 +42,7 @@ set(KICKDRUM_SOURCES
     Source/UI/BrowserPanel.cpp
     Source/UI/Controls.cpp
     Source/UI/KickDisplays.cpp
+    Source/UI/DragAudioHandle.cpp
     Source/UI/Shared/CustomLookAndFeel.cpp
     Source/UI/Shared/VirusComponents.cpp)
 

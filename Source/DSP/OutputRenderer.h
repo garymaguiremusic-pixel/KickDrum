@@ -42,8 +42,12 @@ namespace kd
         /** Called on the message thread with each finished render. */
         std::function<void (std::shared_ptr<const RenderedHit>)> onRendered;
 
-        /** Synchronous render (used by the thread, and by tests). */
+        /** Synchronous render (used by the thread, the audio export, and tests). */
         static std::shared_ptr<RenderedHit> render (const Request&);
+
+        /** Writes a hit as a 24-bit WAV: from the hit (time 0) to where it ends (-60 dBFS),
+            plus a 10 ms fade so the file never ends with a click. Returns false on failure. */
+        static bool writeWav (const RenderedHit&, const juce::File&);
 
     private:
         void run() override;

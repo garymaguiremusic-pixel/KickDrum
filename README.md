@@ -70,6 +70,14 @@ in the background and updates as you edit, so you don't need to play a note. The
 whole hit's length (until it stays below -60 dBFS) in beats, even when it lasts longer than the view,
 and its peak level. The waveform is drawn at the screen's full resolution. Click it to play the kick.
 
+**Drag Audio Out** (under Length and Peak): drag it onto a track in your DAW (e.g. Cubase) to drop the
+kick as audio. It writes one full-velocity hit, exactly as the output display renders it (bands,
+tail, FX, volume), as a 24-bit stereo WAV at the session's sample rate. The file starts on the hit
+(no latency offset, so it lands on the grid where you drop it) and runs to where the hit ends
+(-60 dBFS) plus a 10 ms fade. Each drag writes a new file to `Documents\KickDrum\Exports`, so earlier
+exports used in a project are never overwritten. Right-click it to save the WAV somewhere else or open
+the export folder. The export uses the Key knob's key (Key Lock follows MIDI notes only when playing).
+
 ## Tail (tuned extension)
 
 * The Sub band's pitch is detected when a kick loads (shown as KICK, and on the main display).

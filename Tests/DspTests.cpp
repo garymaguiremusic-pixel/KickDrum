@@ -775,6 +775,47 @@ public:
             MessageManager::getInstance()->runDispatchLoopUntil (50);
         }
 
+        beginTest ("Drag Audio Out: the WAV is the rendered hit, from the beat to its end");
+        {
+            KickDrumAudioProcessor p;
+            p.getBank().waitUntilIdle (5000);
+            MessageManager::getInstance()->runDispatchLoopUntil (100);
+            const auto info = p.getBank().getDisplayInfo();
+            OutputRenderer::Request r;
+            r.set = info.set;
+            r.engine = p.makeEngineSettings();
+            r.saturation = p.makeSaturationSettings();
+            r.compressor = p.makeCompressorSettings();
+            r.volume = p.getVolumeGain();
+            r.sampleRate = 48000.0;
+            r.seconds = 2.0;
+            const auto hit = OutputRenderer::render (r);
+
+            TemporaryFile temp (".wav");
+            expect (OutputRenderer::writeWav (*hit, temp.getFile()));
+
+            AudioFormatManager fm;
+            fm.registerBasicFormats();
+            std::unique_ptr<AudioFormatReader> reader (fm.createReaderFor (temp.getFile()));
+            expect (reader != nullptr);
+            if (reader != nullptr)
+            {
+                expectEquals ((int) reader->numChannels, 2);
+                expectEquals (reader->sampleRate, 48000.0);
+                const int expectedLength = (int) (hit->endSeconds * 48000.0) + 480;
+                expectEquals ((int) reader->lengthInSamples, expectedLength);
+
+                AudioBuffer<float> back (2, (int) reader->lengthInSamples);
+                reader->read (&back, 0, back.getNumSamples(), 0, true, true);
+                // same audio as the render (24-bit), starting at the hit
+                float diff = 0.0f;
+                for (int i = 0; i < back.getNumSamples() - 480; ++i)
+                    diff = jmax (diff, std::abs (back.getSample (0, i) - hit->audio.getSample (0, i)));
+                expectLessThan (diff, 1.0e-4f);
+                expectLessThan (std::abs (back.getSample (0, back.getNumSamples() - 1)), 1.0e-4f);
+            }
+        }
+
         beginTest ("Every factory preset loads");
         {
             KickDrumAudioProcessor p;

@@ -1,4 +1,5 @@
 #include "OutputRenderer.h"
+#include <juce_audio_formats/juce_audio_formats.h>
 
 using namespace juce;
 
@@ -74,6 +75,35 @@ namespace kd
         }
         hit->endSeconds = last / r.sampleRate;
         return hit;
+    }
+
+    bool OutputRenderer::writeWav (const RenderedHit& hit, const File& file)
+    {
+        const int total = hit.audio.getNumSamples();
+        const int fade = (int) (hit.sampleRate * 0.01);
+        const int length = jlimit (1, total, (int) (hit.endSeconds * hit.sampleRate) + fade);
+
+        AudioBuffer<float> out (2, length);
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            out.copyFrom (ch, 0, hit.audio, jmin (ch, hit.audio.getNumChannels() - 1), 0, length);
+            const int f = jmin (fade, length);
+            for (int i = 0; i < f; ++i)   // raised-cosine fade to exactly 0
+                out.setSample (ch, length - f + i,
+                               out.getSample (ch, length - f + i) * (0.5f + 0.5f * std::cos (MathConstants<float>::pi * (float) (i + 1) / (float) f)));
+        }
+
+        file.getParentDirectory().createDirectory();
+        file.deleteFile();
+        std::unique_ptr<OutputStream> stream = file.createOutputStream();
+        if (stream == nullptr)
+            return false;
+
+        WavAudioFormat wav;
+        auto writer = wav.createWriterFor (stream, AudioFormatWriterOptions().withSampleRate (hit.sampleRate)
+                                                                           .withNumChannels (2)
+                                                                           .withBitsPerSample (24));
+        return writer != nullptr && writer->writeFromAudioSampleBuffer (out, 0, length);
     }
 
     void OutputRenderer::run()
