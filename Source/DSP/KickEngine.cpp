@@ -34,6 +34,18 @@ namespace kd
         return (float) (curve > 0.0f ? expo (x) : 1.0 - expo (1.0 - x));
     }
 
+    float regionFade (double fromStart, double toEnd, double fadeOut, bool fadeIn) noexcept
+    {
+        if (toEnd <= 0.0)
+            return 0.0f;
+        float g = 1.0f;
+        if (fadeOut > 0.0 && toEnd < fadeOut)
+            g = 0.5f - 0.5f * (float) std::cos (MathConstants<double>::pi * toEnd / fadeOut);
+        if (fadeIn && fromStart < kStartFadeIn)
+            g *= 0.5f - 0.5f * (float) std::cos (MathConstants<double>::pi * jmax (0.0, fromStart) / kStartFadeIn);
+        return g;
+    }
+
     double tuneRatio (const TailSettings& tail, const dsp::PitchResult& pitch) noexcept
     {
         if (! tail.tuneBody || ! pitch.isValid())
@@ -93,6 +105,8 @@ namespace kd
         v.order = nextOrder++;
         v.mask = bandMask;
         v.env = settings.bands;     // a new hit starts exactly on the current settings
+        v.startFrac = jlimit (0.0, 1.0, settings.startFrac);
+        v.endFrac = jlimit (v.startFrac, 1.0, settings.endFrac);
         const float sens = jlimit (0.0f, 1.0f, settings.velocitySensitivity);
         v.velocityGain = 1.0f - sens * (1.0f - jlimit (0.0f, 1.0f, velocity));
 
@@ -114,7 +128,7 @@ namespace kd
             if (settings.tail.tuneBody)
                 v.tailTo = v.tailFrom;
 
-            const double srcPos = v.tailStart * v.ratio * sub.sampleRate;
+            const double srcPos = v.startFrac * sub.length() + v.tailStart * v.ratio * sub.sampleRate;
             const int chans = jmin (2, sub.audio.getNumChannels());
             for (int ch = 0; ch < chans; ++ch)
             {
@@ -224,11 +238,13 @@ namespace kd
                     e.hold   += (target.hold - e.hold) * envCoef;
                     e.decay  += (target.decay - e.decay) * envCoef;
                     e.curve  += (target.curve - e.curve) * envCoef;
+                    e.fade   += (target.fade - e.fade) * envCoef;
                     longest = jmax (longest, e.length());
                     g[(size_t) b] += (targetGain[(size_t) b] - g[(size_t) b]) * gainCoef;
                 }
                 if (fade < 1.0f)
                     fade = jmin (1.0f, fade + setFadeStep);
+                v.endFrac += (jlimit (v.startFrac, 1.0, settings.endFrac) - v.endFrac) * envCoef;
 
                 if (v.t > longest + 0.01)
                 {
@@ -251,18 +267,30 @@ namespace kd
                     if (env <= 0.0f)
                         continue;
 
-                    const auto& band = set->bands[(size_t) b];
-                    const double pos = v.t * v.ratio * band.sampleRate;
+                    // the played part of the sample: Start .. End, with the fades at its edges
+                    auto play = [&v] (const BandAudio& band, double fadeOut, float& outL, float& outR)
+                    {
+                        const double len = band.length();
+                        const double startPos = v.startFrac * len;
+                        const double pos = startPos + v.t * v.ratio * band.sampleRate;
+                        const double toEnd = (v.endFrac * len - pos) / (band.sampleRate * v.ratio);
+                        const float edge = regionFade (v.t, toEnd, fadeOut, startPos > 0.5);
+                        if (edge <= 0.0f)
+                        {
+                            outL = outR = 0.0f;
+                            return;
+                        }
+                        outL = readSample (band, 0, pos) * edge;
+                        outR = (band.audio.getNumChannels() > 1 ? readSample (band, 1, pos) : readSample (band, 0, pos)) * edge;
+                    };
 
-                    float l = readSample (band, 0, pos);
-                    float r = band.audio.getNumChannels() > 1 ? readSample (band, 1, pos) : l;
+                    float l = 0.0f, r = 0.0f;
+                    play (set->bands[(size_t) b], v.env[(size_t) b].fade, l, r);
 
                     if (fade < 1.0f && previous != nullptr)
                     {
-                        const auto& old = previous->bands[(size_t) b];
-                        const double oldPos = v.t * v.ratio * old.sampleRate;
-                        const float ol = readSample (old, 0, oldPos);
-                        const float orr = old.audio.getNumChannels() > 1 ? readSample (old, 1, oldPos) : ol;
+                        float ol = 0.0f, orr = 0.0f;
+                        play (previous->bands[(size_t) b], v.env[(size_t) b].fade, ol, orr);
                         l = l * fade + ol * (1.0f - fade);
                         r = r * fade + orr * (1.0f - fade);
                     }

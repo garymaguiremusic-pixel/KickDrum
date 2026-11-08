@@ -22,6 +22,8 @@ namespace kd
         inline constexpr const char* tailRoot  = "tailRoot";
         inline constexpr const char* tailScale = "tailScale";
         inline constexpr const char* tailStart = "tailStart";
+        inline constexpr const char* tailStartMode = "tailStartMode";   // 0 = ms, 1 = sync
+        inline constexpr const char* tailStartSync = "tailStartSync";
         inline constexpr const char* tailGlide = "tailGlide";
         inline constexpr const char* tailLevel = "tailLevel";
         inline constexpr const char* tuneBody  = "tuneBody";
@@ -48,6 +50,10 @@ namespace kd
         inline constexpr const char* velSens = "velSens";
         inline constexpr const char* volume  = "volume";
         inline constexpr const char* bpm     = "bpm";
+
+        // The played part of the kick (fractions of each band's sample)
+        inline constexpr const char* sampleStart = "sampleStart";
+        inline constexpr const char* sampleEnd   = "sampleEnd";
     }
 
     /** Per-band parameter IDs, e.g. band (0, "Attack") -> "b1Attack". */
@@ -62,6 +68,7 @@ namespace kd
         inline constexpr const char* decay     = "Decay";
         inline constexpr const char* curve     = "Curve";
         inline constexpr const char* level     = "Level";
+        inline constexpr const char* fade      = "Fade";      // fade-out before the end of the sample
         inline constexpr const char* decayMode = "DecayMode";   // Length in 0 = ms, 1 = sync
         inline constexpr const char* sync      = "Sync";        // synced Length
         inline constexpr const char* mute      = "Mute";
@@ -286,6 +293,7 @@ namespace kd
             addFloat (bandParam (b, BandParams::length), prefix + "Length", skewedRange (10.0f, 8000.0f, 500.0f), 900.0f, formatMs, "ms");
             addFloat (bandParam (b, BandParams::decay),  prefix + "Decay",  skewedRange (5.0f, 8000.0f, 400.0f), 600.0f, formatMs, "ms");
             addFloat (bandParam (b, BandParams::curve),  prefix + "Curve",  { -100.0f, 100.0f }, 40.0f, formatCurve);
+            addFloat (bandParam (b, BandParams::fade),   prefix + "Fade",   skewedRange (0.0f, 1000.0f, 60.0f), 20.0f, formatMs, "ms");
             addFloat (bandParam (b, BandParams::level),  prefix + "Level",  { -60.0f, 12.0f }, 0.0f, formatDb, "dB");
             addChoice (bandParam (b, BandParams::attackMode), prefix + "Attack Mode", { "ms", "Sync" }, 0);
             addChoice (bandParam (b, BandParams::attackSync), prefix + "Attack Sync", getAttackSyncNames(), 1);
@@ -304,6 +312,8 @@ namespace kd
         addChoice (ParamIDs::tailRoot, "Scale Root", getKeyNames(), 9);
         addChoice (ParamIDs::tailScale, "Scale", getScaleNames(), 2);
         addFloat (ParamIDs::tailStart, "Tail Start", skewedRange (20.0f, 600.0f, 150.0f), 120.0f, formatMs, "ms");
+        addChoice (ParamIDs::tailStartMode, "Tail Start Mode", { "ms", "Sync" }, 0);
+        addChoice (ParamIDs::tailStartSync, "Tail Start Sync", getAttackSyncNames(), 2);
         addFloat (ParamIDs::tailGlide, "Tail Glide", skewedRange (0.0f, 1000.0f, 120.0f), 60.0f, formatMs, "ms");
         addFloat (ParamIDs::tailLevel, "Tail Level", { -24.0f, 12.0f }, 0.0f, formatDb, "dB");
         addBool (ParamIDs::tuneBody, "Tune Body", false);
@@ -328,6 +338,8 @@ namespace kd
         addFloat (ParamIDs::compMix, "Comp Mix", { 0.0f, 100.0f }, 100.0f, formatPercent, "%");
 
         // Master -------------------------------------------------------------------------
+        addFloat (ParamIDs::sampleStart, "Sample Start", { 0.0f, 100.0f }, 0.0f, [] (float v) { return String (v, 1) + " %"; }, "%");
+        addFloat (ParamIDs::sampleEnd,   "Sample End",   { 0.0f, 100.0f }, 100.0f, [] (float v) { return String (v, 1) + " %"; }, "%");
         addFloat (ParamIDs::velSens, "Velocity Sensitivity", { 0.0f, 100.0f }, 50.0f, formatPercent, "%");
         addFloat (ParamIDs::volume, "Volume", { -60.0f, 12.0f }, 0.0f, formatDb, "dB");
         addFloat (ParamIDs::bpm, "Internal Tempo", { 40.0f, 240.0f }, 120.0f,

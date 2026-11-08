@@ -12,6 +12,7 @@ namespace kd
         double attack = 0.0, hold = 0.3, decay = 0.6;    // seconds (decay already resolved for Sync)
         float curve = 0.4f;                              // -1 = slow start, 0 = linear, +1 = steep exponential
         float gain = 1.0f;                               // linear
+        double fade = 0.02;                              // seconds: fade-out before the end of the sample (End point)
         bool enabled = true;                             // after mute / solo
 
         double length() const noexcept    { return attack + hold + decay; }
@@ -32,11 +33,18 @@ namespace kd
         std::array<BandSettings, kNumBands> bands;
         TailSettings tail;
         float velocitySensitivity = 0.5f;   // 0..1
+        double startFrac = 0.0, endFrac = 1.0;   // the Start / End points, as fractions of each band's sample
     };
 
     /** The decay shape: x goes 0 -> 1 over the decay, the result 1 -> 0. Always lands softly on 0.
         curve > 0: exponential (fast drop, long gentle tail), curve < 0: slow start, 0: linear. */
     float decayShape (double x, float curve) noexcept;
+
+    /** The fades at the edges of the played part of a sample: a short fade-in when playback starts
+        after the beginning (Start > 0), and the band's Fade (raised cosine) that reaches silence
+        exactly at the End point. */
+    float regionFade (double secondsFromStart, double secondsToEnd, double fadeOut, bool fadeIn) noexcept;
+    static constexpr double kStartFadeIn = 0.002;
 
     /** Gain of a band's Attack / Hold / Decay envelope at 't' seconds after the hit. */
     float envelopeAt (const BandSettings&, double t) noexcept;
@@ -92,6 +100,8 @@ namespace kd
 
             // the envelope this hit actually plays: glides towards the knob settings
             std::array<BandSettings, kNumBands> env;
+            double startFrac = 0.0;          // fixed for the hit (moving it mid-note would jump)
+            double endFrac = 1.0;            // glides like the envelope
 
             // tail oscillator (Sub band)
             bool tail = false;

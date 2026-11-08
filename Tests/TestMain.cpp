@@ -5,12 +5,15 @@
 
 //==============================================================================
 // Renders the editor to a PNG without a display:
-//   KickDrumTests --snapshot out.png [width] [preset] [browser index]
-static int writeSnapshot (const juce::File& file, int width, int preset, int browser)
+//   KickDrumTests --snapshot out.png [width] [preset] [browser index] [start %] [end %]
+static int writeSnapshot (const juce::File& file, int width, int preset, int browser, float startPct = 0.0f, float endPct = 100.0f)
 {
     KickDrumAudioProcessor processor;
     if (preset > 0)
         processor.setCurrentProgram (preset);
+    for (auto [id, v] : { std::pair<const char*, float> { kd::ParamIDs::sampleStart, startPct }, { kd::ParamIDs::sampleEnd, endPct } })
+        if (auto* p = processor.apvts.getParameter (id))
+            p->setValueNotifyingHost (p->convertTo0to1 (v));
     processor.setOpenBrowser (browser);
     processor.getBank().waitUntilIdle (5000);
     juce::MessageManager::getInstance()->runDispatchLoopUntil (300);   // deliver change messages
@@ -41,7 +44,9 @@ int main (int argc, char* argv[])
         return writeSnapshot (juce::File::getCurrentWorkingDirectory().getChildFile (argv[2]),
                               argc > 3 ? juce::String (argv[3]).getIntValue() : 0,
                               argc > 4 ? juce::String (argv[4]).getIntValue() : 0,
-                              argc > 5 ? juce::String (argv[5]).getIntValue() : -1);
+                              argc > 5 ? juce::String (argv[5]).getIntValue() : -1,
+                              argc > 6 ? juce::String (argv[6]).getFloatValue() : 0.0f,
+                              argc > 7 ? juce::String (argv[7]).getFloatValue() : 100.0f);
 
     // print to stdout (the default goes to the debugger output on Windows, which CI can't see)
     struct ConsoleRunner : public juce::UnitTestRunner

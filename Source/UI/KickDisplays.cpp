@@ -71,10 +71,83 @@ namespace kd::ui
     }
 
     //==============================================================================
-    MainWaveform::MainWaveform()
+    MainWaveform::MainWaveform (RangedAudioParameter& sp, RangedAudioParameter& ep)
+        : startParam (sp), endParam (ep),
+          startAttachment (sp, [this] (float v) { start = v * 0.01f; repaint(); }),
+          endAttachment (ep, [this] (float v) { end = v * 0.01f; repaint(); })
     {
-        setTooltip ("The kick (main sample). Click to play it, double-click to load a file, or drop a file here");
-        setMouseCursor (MouseCursor::PointingHandCursor);
+        startAttachment.sendInitialUpdate();
+        endAttachment.sendInitialUpdate();
+        setTooltip ("The kick. Drag the handles to set the Start and End points (shift = fine, double-click a handle resets it). "
+                    "Click to play, double-click to load a file, or drop a file here");
+    }
+
+    Rectangle<float> MainWaveform::waveArea() const
+    {
+        return getLocalBounds().toFloat().reduced (7.0f, 5.0f).withTrimmedTop (15.0f);
+    }
+
+    float MainWaveform::xFor (float fraction) const
+    {
+        const auto a = waveArea();
+        return a.getX() + jlimit (0.0f, 1.0f, fraction) * a.getWidth();
+    }
+
+    float MainWaveform::fractionFor (float x) const
+    {
+        const auto a = waveArea();
+        return jlimit (0.0f, 1.0f, (x - a.getX()) / jmax (1.0f, a.getWidth()));
+    }
+
+    MainWaveform::Handle MainWaveform::handleAt (float x) const
+    {
+        const float ds = std::abs (x - xFor (start)), de = std::abs (x - xFor (end));
+        constexpr float grab = 7.0f;
+        if (ds > grab && de > grab)
+            return Handle::None;
+        return ds <= de ? Handle::Start : Handle::End;
+    }
+
+    void MainWaveform::mouseMove (const MouseEvent& e)
+    {
+        const auto h = handleAt (e.position.x);
+        if (h != hover)
+        {
+            hover = h;
+            setMouseCursor (h != Handle::None ? MouseCursor::LeftRightResizeCursor : MouseCursor::PointingHandCursor);
+            repaint();
+        }
+    }
+
+    void MainWaveform::mouseExit (const MouseEvent&)
+    {
+        hover = Handle::None;
+        repaint();
+    }
+
+    void MainWaveform::mouseDrag (const MouseEvent& e)
+    {
+        if (dragging == Handle::None)
+            return;
+
+        // shift = fine: a tenth of the mouse movement, from where the handle was
+        float f = fractionFor (e.position.x);
+        if (e.mods.isShiftDown())
+            f = dragOrigin + (f - fractionFor ((float) e.getMouseDownX())) * 0.1f;
+
+        // keep at least 1 % between the handles
+        if (dragging == Handle::Start)
+            startAttachment.setValueAsPartOfGesture (jlimit (0.0f, 99.0f, jmin (f, end - 0.01f) * 100.0f));
+        else
+            endAttachment.setValueAsPartOfGesture (jlimit (1.0f, 100.0f, jmax (f, start + 0.01f) * 100.0f));
+    }
+
+    void MainWaveform::mouseUp (const MouseEvent&)
+    {
+        if (dragging == Handle::Start) startAttachment.endGesture();
+        if (dragging == Handle::End)   endAttachment.endGesture();
+        dragging = Handle::None;
+        repaint();
     }
 
     void MainWaveform::setInfo (const KickBank::DisplayInfo& newInfo)
@@ -101,9 +174,10 @@ namespace kd::ui
         auto b = getLocalBounds().toFloat().reduced (1.0f);
         drawScreen (g, b, false);
 
-        auto inner = b.reduced (6.0f, 4.0f);
-        auto header = inner.removeFromTop (15.0f);
+        auto header = b.reduced (6.0f, 4.0f).withHeight (15.0f);
+        const auto inner = waveArea();
         const auto& ov = info.globalOverview;
+        const float xs = xFor (start), xe = xFor (end);
 
         // waveform
         if (ov != nullptr && ov->peak > 0.0f)
@@ -120,8 +194,20 @@ namespace kd::ui
                 const float bottom = mid - ov->mins[(size_t) bin] * scale * halfH;
                 wave.addRectangle (inner.getX() + (float) x, top, 1.0f, jmax (1.0f, bottom - top));
             }
+            // bright inside the Start / End region, dim outside (as in ArpSampler)
+            g.saveState();
+            g.reduceClipRegion (Rectangle<float> (xs, b.getY(), xe - xs, b.getHeight()).toNearestInt());
             g.setColour (Colours::white.withAlpha (0.92f));
             g.fillPath (wave);
+            g.restoreState();
+            g.saveState();
+            g.excludeClipRegion (Rectangle<float> (xs, b.getY(), xe - xs, b.getHeight()).toNearestInt());
+            g.setColour (Colours::white.withAlpha (0.3f));
+            g.fillPath (wave);
+            g.restoreState();
+            g.setColour (Colours::black.withAlpha (0.25f));
+            g.fillRect (Rectangle<float> (b.getX(), b.getY(), xs - b.getX(), b.getHeight()));
+            g.fillRect (Rectangle<float> (xe, b.getY(), b.getRight() - xe, b.getHeight()));
 
             g.setColour (Colours::white.withAlpha (0.2f));
             g.drawHorizontalLine ((int) mid, inner.getX(), inner.getRight());
@@ -129,7 +215,7 @@ namespace kd::ui
             // playhead (in the sample's own time)
             if (playhead >= 0.0 && ov->seconds > 0.0)
             {
-                const double pos = playhead * ratio / ov->seconds;
+                const double pos = start + playhead * ratio / ov->seconds;
                 if (pos <= 1.0)
                 {
                     const float x = inner.getX() + (float) pos * inner.getWidth();
@@ -137,6 +223,22 @@ namespace kd::ui
                     g.fillRect (x - 0.75f, inner.getY(), 1.5f, inner.getHeight());
                 }
             }
+        }
+
+        // Start / End handles
+        if (ov != nullptr)
+        {
+            auto drawHandle = [&] (float x, bool isStart, bool highlighted)
+            {
+                g.setColour (highlighted ? VirusColours::red : Colours::white);
+                g.drawLine (x, inner.getY() - 2.0f, x, b.getBottom() - 2.0f, highlighted ? 2.0f : 1.5f);
+                Path flag;
+                const float y = inner.getY() - 2.0f, w = isStart ? 8.0f : -8.0f;
+                flag.addTriangle (x, y, x + w, y, x, y + 9.0f);
+                g.fillPath (flag);
+            };
+            drawHandle (xs, true, hover == Handle::Start || dragging == Handle::Start);
+            drawHandle (xe, false, hover == Handle::End || dragging == Handle::End);
         }
 
         // header text
@@ -148,7 +250,12 @@ namespace kd::ui
 
         String right = pitchText (info.pitch);
         if (info.global.seconds > 0.0)
-            right << "    " << String (info.global.seconds, 2) << " s";
+        {
+            const double played = info.global.seconds * (double) (end - start);
+            right << "    " << String (played, 2) << " s";
+            if (start > 0.0005f || end < 0.9995f)
+                right << " of " << String (info.global.seconds, 2) << " s";
+        }
         if (info.loading)
             right = "SPLITTING...    " + right;
         drawScreenText (g, right, header, Justification::centredRight, 11.0f);
@@ -159,12 +266,27 @@ namespace kd::ui
 
     void MainWaveform::mouseDown (const MouseEvent& e)
     {
+        dragging = handleAt (e.position.x);
+        if (dragging != Handle::None)
+        {
+            dragOrigin = dragging == Handle::Start ? start : end;
+            (dragging == Handle::Start ? startAttachment : endAttachment).beginGesture();
+            repaint();
+            return;
+        }
         if (e.getNumberOfClicks() == 1 && ! e.mods.isPopupMenu() && onAudition)
             onAudition();
     }
 
-    void MainWaveform::mouseDoubleClick (const MouseEvent&)
+    void MainWaveform::mouseDoubleClick (const MouseEvent& e)
     {
+        // on a handle: back to the start / end of the sample; elsewhere: load a file
+        if (const auto h = handleAt (e.position.x); h != Handle::None)
+        {
+            if (h == Handle::Start) startAttachment.setValueAsCompleteGesture (0.0f);
+            else                    endAttachment.setValueAsCompleteGesture (100.0f);
+            return;
+        }
         if (onBrowse)
             onBrowse();
     }
@@ -371,7 +493,8 @@ namespace kd::ui
     bool BandView::State::operator== (const State& o) const
     {
         return overview == o.overview && env.attack == o.env.attack && env.hold == o.env.hold && env.decay == o.env.decay
-            && env.curve == o.env.curve && env.gain == o.env.gain && spanSeconds == o.spanSeconds && ratio == o.ratio
+            && env.curve == o.env.curve && env.gain == o.env.gain && env.fade == o.env.fade
+            && startFrac == o.startFrac && endFrac == o.endFrac && spanSeconds == o.spanSeconds && ratio == o.ratio
             && displayScale == o.displayScale && tailOn == o.tailOn && tailStart == o.tailStart && tailLevel == o.tailLevel
             && tailText == o.tailText && lengthText == o.lengthText && rangeText == o.rangeText && enabled == o.enabled;
     }
@@ -426,8 +549,9 @@ namespace kd::ui
         {
             auto binAt = [&] (double t) -> int
             {
-                const double srcT = t * state.ratio;          // Tune Body plays faster/slower
-                if (srcT >= ov->seconds) return -1;
+                // from the Start point, Tune Body playing faster/slower; nothing after the End point
+                const double srcT = state.startFrac * ov->seconds + t * state.ratio;
+                if (srcT >= state.endFrac * ov->seconds || srcT >= ov->seconds) return -1;
                 return jlimit (0, Overview::kNumBins - 1, (int) (srcT / ov->seconds * Overview::kNumBins));
             };
 
@@ -443,7 +567,9 @@ namespace kd::ui
                 float lo = ov->mins[(size_t) bin] * state.displayScale;
                 raw.addRectangle (inner.getX() + (float) x, mid - hi * halfH, 1.0f, jmax (1.0f, (hi - lo) * halfH));
 
-                float gain = envelopeAt (state.env, t) * state.env.gain;
+                const double toEnd = (state.endFrac * ov->seconds - (state.startFrac * ov->seconds + t * state.ratio)) / state.ratio;
+                float gain = envelopeAt (state.env, t) * state.env.gain
+                           * regionFade (t, toEnd, state.env.fade, state.startFrac > 0.0);
                 if (state.tailOn && t > state.tailStart - KickEngine::kTailCrossfade * 0.5)
                     gain *= 1.0f - (float) jlimit (0.0, 1.0, (t - (state.tailStart - KickEngine::kTailCrossfade * 0.5)) / KickEngine::kTailCrossfade);
                 hi = jlimit (-1.0f, 1.0f, hi * gain);

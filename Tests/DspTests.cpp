@@ -237,7 +237,7 @@ public:
             EngineSettings es;
             for (auto& b : es.bands)
             {
-                b.attack = 0.0; b.hold = 5.0; b.decay = 1.0;
+                b.attack = 0.0; b.hold = 5.0; b.decay = 1.0; b.fade = 0.0;
             }
             es.velocitySensitivity = 0.0f;
             engine.trigger (&set, es, 1.0f);
@@ -391,6 +391,44 @@ public:
                 expectEquals (buffer.getSample (ch, 0), 0.0f);
                 expectLessThan (std::abs (buffer.getSample (ch, end)), 0.01f);
             }
+        }
+
+        beginTest ("Start / End points and the band Fade: no step at either edge");
+        {
+            KickSet tone;
+            for (int b = 0; b < 4; ++b)
+            {
+                auto& band = tone.bands[(size_t) b];
+                band.sampleRate = 48000.0;
+                band.audio.setSize (1, 48000);
+                for (int i = 0; i < 48000; ++i)
+                    band.audio.setSample (0, i, b == 0 ? 0.8f * (float) std::sin (MathConstants<double>::twoPi * 50.0 * i / 48000.0 + 1.0) : 0.0f);
+            }
+            KickEngine engine;
+            engine.prepare (48000.0);
+            EngineSettings es;
+            for (auto& b : es.bands)
+            {
+                b.attack = 0.0; b.hold = 2.0; b.decay = 0.1; b.fade = 0.03;
+            }
+            es.startFrac = 0.2071;     // mid-cycle
+            es.endFrac = 0.6033;
+            engine.trigger (&tone, es, 1.0f);
+            AudioBuffer<float> out (2, 48000);
+            out.clear();
+            engine.render (&tone, es, out, 0, out.getNumSamples());
+
+            float maxStep = std::abs (out.getSample (0, 0));
+            for (int i = 1; i < 48000; ++i)
+                maxStep = jmax (maxStep, std::abs (out.getSample (0, i) - out.getSample (0, i - 1)));
+            expectLessThan (maxStep, 0.012f);
+
+            // it starts at the Start point and is silent after the End point (0.396 s of sample)
+            const int endSample = (int) ((0.6033 - 0.2071) * 48000.0);
+            expectGreaterThan (out.getMagnitude (0, 2000, 4000), 0.5f);
+            expectEquals (out.getMagnitude (0, endSample + 2, 2000), 0.0f);
+            // ... and fading in the last 30 ms
+            expectLessThan (out.getMagnitude (0, endSample - 200, 200), 0.1f);
         }
 
         beginTest ("Tune Body plays the kick in the key's nearest octave");
@@ -597,6 +635,15 @@ public:
             expectWithinAbsoluteError (p.makeEngineSettings().bands[1].attack, 0.125, 1.0e-6);
             set (bandParam (1, BandParams::attackSync), 4.0f);      // 1/4 = 500 ms
             expectWithinAbsoluteError (p.makeEngineSettings().bands[1].attack, 0.5, 1.0e-6);
+        }
+
+        beginTest ("Tail Start can be synced");
+        {
+            KickDrumAudioProcessor p;
+            auto set = [&p] (const String& id, float v) { auto* q = p.apvts.getParameter (id); q->setValueNotifyingHost (q->convertTo0to1 (v)); };
+            set (ParamIDs::tailStartMode, 1.0f);
+            set (ParamIDs::tailStartSync, 3.0f);      // 1/8 at 120 BPM = 250 ms
+            expectWithinAbsoluteError (p.makeEngineSettings().tail.start, 0.25, 1.0e-6);
         }
 
         beginTest ("Key Lock: MIDI notes set the key, in the scale, near the Key knob");

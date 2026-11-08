@@ -34,6 +34,9 @@ It appears as an instrument under **VirusDelay Project**. Any MIDI note plays th
 
 Each band has:
 
+* **Start / End handles** on the main kick waveform (as in ArpSampler) set which part of the sample
+  plays, for every band (each band's own sample uses the same proportions). Drag them (shift = fine);
+  double-click a handle to reset it. A start after the beginning gets a 2 ms fade-in.
 * **Display**: the band's waveform (faint = before the envelope, white = after it), the envelope
   line, the playhead and, on the Sub band, the tuned tail. All four use the same time scale.
   Click to hear that band alone; double-click to open its browser; drop a file on it to give it
@@ -41,6 +44,8 @@ Each band has:
 * **Attack / Length / Decay / Curve / Level**, plus **M**ute and **S**olo. **Length** is how long the
   band lasts in total; **Decay** is the fade at its end (it can't be longer than the Length), and the
   band stays at full level in between.
+* **Fade**: a fade-out (0-1000 ms, default 20 ms) that reaches silence exactly at the end of the
+  sample (or the End point), so a band never stops with a click when its sample ends before its Length.
 * **Curve** shapes the decay: right of centre is exponential (drops fast, then a long soft tail),
   centre is linear, left is a slow start (holds its level, then falls). Every setting fades
   smoothly to silence.
@@ -81,6 +86,8 @@ and its peak level. The waveform is drawn at the screen's full resolution. Click
   the tail follows it note by note; with **Tune Body** on as well, the body follows too. The KEY
   readout shows the last note played (MIDI). Without Key Lock, any note plays the Key knob's key.
 * **Level**: the tail's level relative to the kick.
+* **Start: ms or Sync**: where the Sub band hands over to the tail, in ms or as a note length
+  (1/64 to 1/4) at the tempo.
 
 ## FX
 

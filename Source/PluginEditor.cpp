@@ -83,10 +83,13 @@ namespace
 KickDrumAudioProcessorEditor::Content::Content (KickDrumAudioProcessor& p)
     : processor (p),
       bank (p.getBank()),
+      mainWave (*p.apvts.getParameter (ParamIDs::sampleStart), *p.apvts.getParameter (ParamIDs::sampleEnd)),
       crossover (*p.apvts.getParameter (ParamIDs::xover1), *p.apvts.getParameter (ParamIDs::xover2),
                  *p.apvts.getParameter (ParamIDs::xover3), *p.apvts.getParameter (ParamIDs::slope)),
       slopeButtons (*p.apvts.getParameter (ParamIDs::slope), { "6", "12", "18", "24", "36" },
                     "Crossover slope in dB/oct. Gentler slopes ring less; steeper ones keep the bands more separate"),
+      tailStartModeButtons (*p.apvts.getParameter (ParamIDs::tailStartMode), { "ms", "Sync" },
+                            "Tail Start in milliseconds, or Sync: the tail takes over after a note length (1/64 to 1/4)"),
       tempoField (*p.apvts.getParameter (ParamIDs::bpm)),
       globalBrowser (p.getSampleLibrary(), p.getBrowserState (KickDrumAudioProcessor::kGlobalBrowser),
                      p.getBank().getSupportedWildcard(), nullptr, browserOptions ("Kick Browser  -  loads into every band"))
@@ -206,6 +209,9 @@ KickDrumAudioProcessorEditor::Content::Content (KickDrumAudioProcessor& p)
     }, Unit::Note);
     keyKnob.setTooltip ("The tail's key. It locks to the notes of the Root / Scale");
     addKnob (tailStartKnob, ParamIDs::tailStart, formatMs, Unit::Ms);
+    tailStartKnob.inactiveHint = "Tail Start is synced to the note (switch to ms to set it here)";
+    addAndMakeVisible (tailStartModeButtons);
+    addCombo (tailStartSyncBox, ParamIDs::tailStartSync, getAttackSyncNames(), "Synced Tail Start, at the host tempo");
     addKnob (glideKnob, ParamIDs::tailGlide, formatMs, Unit::Ms);
     addKnob (tailLevelKnob, ParamIDs::tailLevel, formatDb, Unit::Db);
     addCombo (rootBox, ParamIDs::tailRoot, getKeyNames(), "Scale root: the Key knob locks to this scale");
@@ -332,6 +338,8 @@ void KickDrumAudioProcessorEditor::Content::setupBand (BandControls& c)
     addKnob (c.decay, bandParam (b, BandParams::decay), formatMs, Unit::Ms);
     addKnob (c.curve, bandParam (b, BandParams::curve), formatCurve, Unit::Curve);
     c.curve.getProperties().set ("bipolar", true);
+    addKnob (c.fade, bandParam (b, BandParams::fade), formatMs, Unit::Ms);
+    c.fade.setTooltip ("Fade-out before the end of the sample (the End point), so it never stops with a click");
     addKnob (c.level, bandParam (b, BandParams::level), formatDb, Unit::Db);
     c.length.setTooltip ("How long the band lasts in total (attack, full level, then the decay fade)");
     c.length.inactiveHint = "Length is synced to the note (switch to ms to set it here)";
@@ -452,6 +460,8 @@ void KickDrumAudioProcessorEditor::Content::updateDisplays()
         s.env = env;
         s.spanSeconds = span;
         s.ratio = ratio;
+        s.startFrac = settings.startFrac;
+        s.endFrac = settings.endFrac;
         s.displayScale = loudest > 0.0f ? 0.95f / loudest : 1.0f;
         s.tailOn = b == 0 && settings.tail.on && info.pitch.isValid();
         s.tailStart = jmax (KickEngine::kTailCrossfade, settings.tail.start);
@@ -520,6 +530,11 @@ void KickDrumAudioProcessorEditor::Content::updateDisplays()
     }
     matchButton.setEnabled (info.pitch.isValid());
     glideKnob.setEnabled (! settings.tail.tuneBody);
+    {
+        const bool startSynced = raw (ParamIDs::tailStartMode) > 0.5f;
+        tailStartKnob.setEnabled (! startSynced);
+        tailStartSyncBox.setEnabled (startSynced);
+    }
     glideKnob.inactiveHint = "With Tune Body the kick is already in the key, so the tail doesn't glide";
 
     // saturation
@@ -607,9 +622,9 @@ void KickDrumAudioProcessorEditor::Content::resized()
         c.browse.setBounds (x + 90, y + 153, 80, 24);
         c.useMain.setBounds (x + 174, y + 153, 81, 24);
 
-        VirusKnob* knobs[] { &c.attack, &c.length, &c.decay, &c.curve, &c.level };
-        for (int k = 0; k < 5; ++k)
-            knobs[k]->setBounds (x + 8 + roundToInt (k * 49.4f), y + 182, 49, 68);
+        VirusKnob* knobs[] { &c.attack, &c.length, &c.decay, &c.curve, &c.fade, &c.level };
+        for (int k = 0; k < 6; ++k)
+            knobs[k]->setBounds (x + 6 + roundToInt (k * 41.8f), y + 182, 43, 68);
 
         c.attackModeButtons.setBounds (x + 60, y + 256, 76, 24);
         c.attackSyncBox.setBounds (x + 140, y + 256, 74, 24);
@@ -637,6 +652,8 @@ void KickDrumAudioProcessorEditor::Content::resized()
         scaleBox.setBounds (x + 174, y + 82, 116, 24);
         detectLcd.setBounds (x + 112, y + 124, 178, 26);
         tailStartKnob.setBounds (x + 112, y + 168, 60, 72);
+        tailStartModeButtons.setBounds (x + 10, y + 198, 94, 22);
+        tailStartSyncBox.setBounds (x + 10, y + 224, 94, 22);
         glideKnob.setBounds (x + 172, y + 168, 60, 72);
         tailLevelKnob.setBounds (x + 232, y + 168, 60, 72);
     }
@@ -705,6 +722,7 @@ void KickDrumAudioProcessorEditor::Content::paint (Graphics& g)
     }
 
     CustomLookAndFeel::drawPanel (g, tailPanel, "Tail  -  Tuned Extension");
+    CustomLookAndFeel::drawSmallLabel (g, "Start", { tailPanel.getX() + 10.0f, tailPanel.getY() + 184.0f, 94.0f, 14.0f }, Justification::centredLeft);
     CustomLookAndFeel::drawSmallLabel (g, "Root", { tailPanel.getX() + 112.0f, tailPanel.getY() + 66.0f, 58.0f, 14.0f }, Justification::centredLeft);
     CustomLookAndFeel::drawSmallLabel (g, "Scale lock", { tailPanel.getX() + 174.0f, tailPanel.getY() + 66.0f, 116.0f, 14.0f }, Justification::centredLeft);
 

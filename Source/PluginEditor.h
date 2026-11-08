@@ -42,6 +42,7 @@ private:
         VirusKnob length { VirusKnob::Size::Small, "Length" };
         VirusKnob decay  { VirusKnob::Size::Small, "Decay" };
         VirusKnob curve  { VirusKnob::Size::Small, "Curve" };
+        VirusKnob fade   { VirusKnob::Size::Small, "Fade" };
         VirusKnob level  { VirusKnob::Size::Small, "Level" };
         SegmentedButtons attackModeButtons, modeButtons;
         juce::ComboBox attackSyncBox, syncBox;
@@ -101,6 +102,8 @@ private:
                          matchButton { "Match" };
         VirusKnob keyKnob       { VirusKnob::Size::Large, "Key" };
         VirusKnob tailStartKnob { VirusKnob::Size::Small, "Start" };
+        SegmentedButtons tailStartModeButtons;
+        juce::ComboBox tailStartSyncBox;
         VirusKnob glideKnob     { VirusKnob::Size::Small, "Glide" };
         VirusKnob tailLevelKnob { VirusKnob::Size::Small, "Level" };
         juce::ComboBox rootBox, scaleBox;

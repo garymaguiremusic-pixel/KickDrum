@@ -25,6 +25,7 @@ struct KickDrumAudioProcessor::ParamPointers
         {
             auto& band = bands[(size_t) b];
             band.attack    = get (bandParam (b, BandParams::attack));
+            band.fade      = get (bandParam (b, BandParams::fade));
             band.attackMode = get (bandParam (b, BandParams::attackMode));
             band.attackSync = get (bandParam (b, BandParams::attackSync));
             band.length    = get (bandParam (b, BandParams::length));
@@ -39,6 +40,8 @@ struct KickDrumAudioProcessor::ParamPointers
 
         tailOn = get (ParamIDs::tailOn);       tailKey = get (ParamIDs::tailKey);
         keyLock = get (ParamIDs::keyLock);
+        tailStartMode = get (ParamIDs::tailStartMode); tailStartSync = get (ParamIDs::tailStartSync);
+        sampleStart = get (ParamIDs::sampleStart);     sampleEnd = get (ParamIDs::sampleEnd);
         tailRoot = get (ParamIDs::tailRoot);   tailScale = get (ParamIDs::tailScale);
         tailStart = get (ParamIDs::tailStart); tailGlide = get (ParamIDs::tailGlide);
         tailLevel = get (ParamIDs::tailLevel); tuneBody = get (ParamIDs::tuneBody);
@@ -59,13 +62,13 @@ struct KickDrumAudioProcessor::ParamPointers
 
     struct Band
     {
-        std::atomic<float>* attack, *attackMode, *attackSync, *length, *decay, *curve, *level, *decayMode, *sync, *mute, *solo;
+        std::atomic<float>* attack, *fade, *attackMode, *attackSync, *length, *decay, *curve, *level, *decayMode, *sync, *mute, *solo;
     };
 
     std::array<std::atomic<float>*, 3> xover {};
     std::atomic<float>* slope;
     std::array<Band, kNumBands> bands {};
-    std::atomic<float>* keyLock;
+    std::atomic<float>* keyLock, *tailStartMode, *tailStartSync, *sampleStart, *sampleEnd;
     std::atomic<float>* tailOn, *tailKey, *tailRoot, *tailScale, *tailStart, *tailGlide, *tailLevel, *tuneBody;
     std::atomic<float>* satOn, *satType, *satDrive, *satTone, *satMix, *satLevel;
     std::atomic<float>* compOn, *compThresh, *compRatio, *compAttack, *compRelease, *compMakeup, *compMix;
@@ -138,6 +141,7 @@ EngineSettings KickDrumAudioProcessor::makeEngineSettings() const
         b.attack = idx (p.attackMode) == 1 ? attackSyncBeats (idx (p.attackSync)) * beatSeconds
                                            : val (p.attack) * 0.001;
         b.curve = val (p.curve) * 0.01f;
+        b.fade = val (p.fade) * 0.001;
         b.gain = val (p.level) <= -59.9f ? 0.0f : Decibels::decibelsToGain (val (p.level));
         b.enabled = anySolo ? on (p.solo) : ! on (p.mute);
 
@@ -152,7 +156,10 @@ EngineSettings KickDrumAudioProcessor::makeEngineSettings() const
 
     s.tail.on = on (params->tailOn);
     s.tail.keyHz = noteToHz (getTailNote());
-    s.tail.start = val (params->tailStart) * 0.001;
+    s.tail.start = idx (params->tailStartMode) == 1 ? attackSyncBeats (idx (params->tailStartSync)) * beatSeconds
+                                                    : val (params->tailStart) * 0.001;
+    s.startFrac = val (params->sampleStart) * 0.01;
+    s.endFrac = jmax (s.startFrac, (double) val (params->sampleEnd) * 0.01);
     s.tail.glide = val (params->tailGlide) * 0.001;
     s.tail.level = Decibels::decibelsToGain (val (params->tailLevel));
     s.tail.tuneBody = on (params->tuneBody);

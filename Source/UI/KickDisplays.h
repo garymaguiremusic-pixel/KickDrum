@@ -28,24 +28,42 @@ namespace kd::ui
     };
 
     //==============================================================================
-    /** The whole kick (the global sample), with its name, detected pitch and length. */
+    /** The whole kick (the global sample), with its name, detected pitch and length, and the
+        Start / End handles that set which part of it plays (as in ArpSampler). */
     class MainWaveform : public juce::Component,
                          public juce::SettableTooltipClient,
                          public DropTarget
     {
     public:
-        MainWaveform();
+        MainWaveform (juce::RangedAudioParameter& startParam, juce::RangedAudioParameter& endParam);
 
         std::function<void()> onAudition, onBrowse;
 
         void setInfo (const KickBank::DisplayInfo&);
         void setPlayhead (double seconds, double ratio);
         void paint (juce::Graphics&) override;
+        void mouseMove (const juce::MouseEvent&) override;
         void mouseDown (const juce::MouseEvent&) override;
+        void mouseDrag (const juce::MouseEvent&) override;
+        void mouseUp (const juce::MouseEvent&) override;
         void mouseDoubleClick (const juce::MouseEvent&) override;
+        void mouseExit (const juce::MouseEvent&) override;
 
     private:
+        enum class Handle { None, Start, End };
+
         void setDragHover (bool h) override   { dragHover = h; repaint(); }
+        juce::Rectangle<float> waveArea() const;
+        float xFor (float fraction) const;
+        float fractionFor (float x) const;
+        Handle handleAt (float x) const;
+
+        juce::RangedAudioParameter& startParam;
+        juce::RangedAudioParameter& endParam;
+        juce::ParameterAttachment startAttachment, endAttachment;
+        float start = 0.0f, end = 1.0f;          // fractions
+        Handle hover = Handle::None, dragging = Handle::None;
+        float dragOrigin = 0.0f;
 
         KickBank::DisplayInfo info;
         double playhead = -1.0, ratio = 1.0;
@@ -105,6 +123,7 @@ namespace kd::ui
             BandSettings env;
             double spanSeconds = 1.0;       // shared by all four views
             double ratio = 1.0;             // Tune Body speed
+            double startFrac = 0.0, endFrac = 1.0;   // the Start / End points
             float displayScale = 1.0f;      // the loudest band fills the view
             bool tailOn = false;
             double tailStart = 0.12;
