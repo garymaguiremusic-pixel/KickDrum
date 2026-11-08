@@ -54,8 +54,11 @@ namespace kd
     {
     public:
         static constexpr int kMaxVoices = 4;
-        static constexpr double kChokeSeconds = 0.004;
+        static constexpr double kChokeSeconds = 0.006;       // a new hit fades the old one out over this
         static constexpr double kTailCrossfade = 0.03;
+        static constexpr double kEnvelopeGlide = 0.015;      // envelope edits glide (time constant), never jump
+        static constexpr double kGainGlide = 0.01;           // level / mute / solo changes fade over ~10 ms
+        static constexpr double kSetCrossfade = 0.01;        // re-split bands (crossover moved) crossfade in
 
         void prepare (double sampleRate);
         void reset();
@@ -63,8 +66,12 @@ namespace kd
         /** 'bandMask': bit b set = band b plays (the editor's per-band audition uses a single band). */
         void trigger (const KickSet*, const EngineSettings&, float velocity, juce::uint8 bandMask = 0x0f);
 
-        /** Adds the hits into 'out' (stereo or mono). */
-        void render (const KickSet*, const EngineSettings&, juce::AudioBuffer<float>& out, int start, int num) noexcept;
+        /** Adds the hits into 'out' (stereo or mono). When 'set' changes while hits are playing
+            (the crossover moved), they crossfade from 'previous' (which must stay valid until
+            isCrossfadingSets() is false). */
+        void render (const KickSet*, const EngineSettings&, juce::AudioBuffer<float>& out, int start, int num,
+                     const KickSet* previous = nullptr) noexcept;
+        bool isCrossfadingSets() const noexcept     { return setFade < 1.0f; }
 
         /** Seconds since the newest hit that is still playing, or -1. */
         double getPlayheadSeconds() const noexcept;
@@ -83,6 +90,9 @@ namespace kd
             bool choking = false;
             float choke = 1.0f;
 
+            // the envelope this hit actually plays: glides towards the knob settings
+            std::array<BandSettings, kNumBands> env;
+
             // tail oscillator (Sub band)
             bool tail = false;
             double tailStart = 0.0, tailGlide = 0.0, tailFrom = 0.0, tailTo = 0.0;
@@ -95,6 +105,11 @@ namespace kd
         double sampleRate = 44100.0;
         std::array<Voice, kMaxVoices> voices;
         juce::uint32 nextOrder = 1;
-        std::array<float, kNumBands> lastGain { 1.0f, 1.0f, 1.0f, 1.0f };
+        std::array<float, kNumBands> bandGain { 1.0f, 1.0f, 1.0f, 1.0f };   // smoothed level (0 = muted)
+        bool gainsInitialised = false;
+        float envCoef = 0.0f, gainCoef = 0.0f;
+
+        const KickSet* lastSet = nullptr;
+        float setFade = 1.0f, setFadeStep = 0.0f;
     };
 }

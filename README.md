@@ -46,6 +46,10 @@ Each band has:
   smoothly to silence.
 * **Length: ms or Sync**. In Sync, the band lasts exactly 1/16, 1/8, 1/4, 1/2 or 1 bar at the host
   tempo (or the internal tempo when there is none), and the Decay still fades it out smoothly.
+* **No clicks while editing**: a playing hit glides to new Attack / Length / Decay / Curve settings
+  (about 15 ms) instead of jumping; level, mute and solo changes fade over ~10 ms; and when the
+  crossover moves mid-note, the new band split crossfades in over 10 ms. Every band's audio starts
+  with a 0.5 ms fade-in from zero and ends at a zero crossing with a 5 ms fade-out.
 * **Every knob**: double-click to type a value (`120`, `1.5 s`, `-3 dB`, `2k`, `4:1`, `Exp 40`,
   `A1` ...; Enter applies, Esc cancels). Alt-click (or Ctrl-click) resets it.
 * **Mini browser**: the band's sample (MAIN = the main kick, OWN = its own), favourite star,

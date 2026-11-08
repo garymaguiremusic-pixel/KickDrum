@@ -22,7 +22,8 @@ namespace kd
 
         delete pending.exchange (nullptr);
         delete current;
-        current = nullptr;
+        delete previous;
+        current = previous = nullptr;
         collectGarbage();
     }
 
@@ -223,6 +224,44 @@ namespace kd
         return decoded;
     }
 
+    void KickBank::declickEdges (AudioBuffer<float>& buffer, double sampleRate)
+    {
+        const int chans = buffer.getNumChannels();
+        int len = buffer.getNumSamples();
+        if (len < 8 || chans == 0)
+            return;
+
+        auto mono = [&buffer, chans] (int i)
+        {
+            float v = 0.0f;
+            for (int ch = 0; ch < chans; ++ch)
+                v += buffer.getSample (ch, i);
+            return v;
+        };
+
+        // end: cut at the last zero crossing in the final 20 ms (if there is one), then fade out
+        const int searchFrom = jmax (1, len - (int) (sampleRate * 0.02));
+        for (int i = len - 1; i >= searchFrom; --i)
+            if ((mono (i - 1) <= 0.0f) != (mono (i) <= 0.0f))
+            {
+                for (int ch = 0; ch < chans; ++ch)
+                    buffer.clear (ch, i, len - i);
+                len = i;
+                break;
+            }
+
+        const int fadeOut = jmin (len / 2, (int) (sampleRate * 0.005));
+        const int fadeIn = jmin (len / 2, jmax (2, (int) (sampleRate * 0.0005)));
+        for (int ch = 0; ch < chans; ++ch)
+        {
+            auto* d = buffer.getWritePointer (ch);
+            for (int i = 0; i < fadeIn; ++i)        // raised-cosine fade-in from exactly 0
+                d[i] *= 0.5f - 0.5f * std::cos (MathConstants<float>::pi * (float) i / (float) fadeIn);
+            for (int i = 0; i < fadeOut; ++i)       // raised-cosine fade-out to exactly 0
+                d[len - 1 - i] *= 0.5f - 0.5f * std::cos (MathConstants<float>::pi * (float) i / (float) fadeOut);
+        }
+    }
+
     std::shared_ptr<const Overview> KickBank::makeOverview (const AudioBuffer<float>& buffer, double sampleRate)
     {
         auto ov = std::make_shared<Overview>();
@@ -309,6 +348,7 @@ namespace kd
                 {
                     if (! wanted[(size_t) b])
                         continue;
+                    declickEdges (outs[(size_t) b], src->audio.sampleRate);
                     set->bands[(size_t) b].audio = std::move (outs[(size_t) b]);
                     set->bands[(size_t) b].sampleRate = src->audio.sampleRate;
                     info.bands[(size_t) b] = src->info;
@@ -370,22 +410,37 @@ namespace kd
         delete pending.exchange (set.release(), std::memory_order_acq_rel);
     }
 
+    void KickBank::retire (KickSet* set) noexcept
+    {
+        if (set == nullptr)
+            return;
+        const auto scope = retiredFifo.write (1);
+        if (scope.blockSize1 > 0)
+            retired[(size_t) scope.startIndex1] = set;
+    }
+
     const KickSet* KickBank::getAudioSet() noexcept
     {
-        if (pending.load (std::memory_order_acquire) != nullptr && retiredFifo.getFreeSpace() > 0)
+        // room for retiring two sets (the previous one and, later, this one)
+        if (pending.load (std::memory_order_acquire) != nullptr && retiredFifo.getFreeSpace() > 1)
         {
             if (auto* next = pending.exchange (nullptr, std::memory_order_acq_rel))
             {
-                if (current != nullptr)
-                {
-                    const auto scope = retiredFifo.write (1);
-                    if (scope.blockSize1 > 0)
-                        retired[(size_t) scope.startIndex1] = current;
-                }
+                retire (previous);
+                previous = current;
                 current = next;
             }
         }
         return current;
+    }
+
+    void KickBank::releasePrevious() noexcept
+    {
+        if (previous != nullptr && retiredFifo.getFreeSpace() > 0)
+        {
+            retire (previous);
+            previous = nullptr;
+        }
     }
 
     void KickBank::collectGarbage()

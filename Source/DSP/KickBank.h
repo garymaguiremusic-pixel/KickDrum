@@ -111,10 +111,17 @@ namespace kd
         // Audio thread -------------------------------------------------------------------
         /** The set to play this block (nullptr until the first build). Never allocates or locks. */
         const KickSet* getAudioSet() noexcept;
+        /** The set that was playing before the last swap (kept so playing hits can crossfade). */
+        const KickSet* getPreviousSet() const noexcept   { return previous; }
+        /** The crossfade is over: the previous set can be deleted. */
+        void releasePrevious() noexcept;
 
         // Exposed for tests -----------------------------------------------------------------
         static std::unique_ptr<BandAudio> makeBuiltInKick();
         static std::shared_ptr<const Overview> makeOverview (const juce::AudioBuffer<float>&, double sampleRate);
+        /** De-clicks a band's edges: a short fade-in, and the end trimmed to its last zero crossing
+            and faded out, so a band never starts or stops with a step. */
+        static void declickEdges (juce::AudioBuffer<float>&, double sampleRate);
 
     private:
         struct Request
@@ -154,6 +161,8 @@ namespace kd
         // audio hand-off
         std::atomic<KickSet*> pending { nullptr };
         KickSet* current = nullptr;                // audio thread
+        KickSet* previous = nullptr;               // audio thread
+        void retire (KickSet*) noexcept;
         juce::AbstractFifo retiredFifo { 64 };
         std::array<KickSet*, 64> retired {};
         juce::uint32 nextSetId = 1;

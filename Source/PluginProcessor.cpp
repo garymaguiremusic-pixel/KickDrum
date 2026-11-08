@@ -234,18 +234,20 @@ void KickDrumAudioProcessor::processBlock (AudioBuffer<float>& buffer, MidiBuffe
         const int at = jlimit (0, num, meta.samplePosition);
         if (msg.isNoteOn())
         {
-            engine.render (set, settings, buffer, pos, at - pos);
+            engine.render (set, settings, buffer, pos, at - pos, bank.getPreviousSet());
             pos = at;
             engine.trigger (set, settings, msg.getFloatVelocity());
         }
         else if (msg.isAllNotesOff() || msg.isAllSoundOff())
         {
-            engine.render (set, settings, buffer, pos, at - pos);
+            engine.render (set, settings, buffer, pos, at - pos, bank.getPreviousSet());
             pos = at;
             engine.reset();
         }
     }
-    engine.render (set, settings, buffer, pos, num - pos);
+    engine.render (set, settings, buffer, pos, num - pos, bank.getPreviousSet());
+    if (! engine.isCrossfadingSets())
+        bank.releasePrevious();     // the old band split is no longer needed
     midi.clear();
 
     fx.process (buffer, makeSaturationSettings(), makeCompressorSettings());

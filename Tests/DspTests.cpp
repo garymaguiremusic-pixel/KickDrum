@@ -303,6 +303,96 @@ public:
             expectLessThan (maxStep, 0.03f);
         }
 
+        beginTest ("No clicks when Length, Decay or Curve move while a note plays");
+        {
+            // a steady 50 Hz tone in every band makes any step in the envelope easy to see
+            KickSet tone;
+            for (int b = 0; b < 4; ++b)
+            {
+                auto& band = tone.bands[(size_t) b];
+                band.sampleRate = 48000.0;
+                band.audio.setSize (1, 96000);
+                for (int i = 0; i < 96000; ++i)
+                    band.audio.setSample (0, i, b == 0 ? 0.8f * (float) std::sin (MathConstants<double>::twoPi * 50.0 * i / 48000.0) : 0.0f);
+            }
+
+            auto maxStepWhen = [this, &tone] (std::function<void (EngineSettings&)> change)
+            {
+                KickEngine engine;
+                engine.prepare (48000.0);
+                EngineSettings es;
+                for (auto& b : es.bands)
+                {
+                    b.attack = 0.0; b.hold = 0.6; b.decay = 0.6; b.curve = 0.4f;
+                }
+                engine.trigger (&tone, es, 1.0f);
+                AudioBuffer<float> out (2, 48000);
+                out.clear();
+                for (int pos = 0; pos < 48000; pos += 64)
+                {
+                    if (pos == 24320)
+                        change (es);                       // at ~0.5 s, mid-note, mid-cycle
+                    engine.render (&tone, es, out, pos, 64);
+                }
+                // the tone itself moves at most 0.8 * 2 * pi * 50 / 48000 = 0.0052 per sample
+                float maxStep = 0.0f;
+                for (int i = 1; i < 48000; ++i)
+                    maxStep = jmax (maxStep, std::abs (out.getSample (0, i) - out.getSample (0, i - 1)));
+                return maxStep;
+            };
+
+            expectLessThan (maxStepWhen ([] (EngineSettings& es) { es.bands[0].hold = 0.1; es.bands[0].decay = 0.1; }), 0.012f,
+                            "shortening the Length below the playhead");
+            expectLessThan (maxStepWhen ([] (EngineSettings& es) { es.bands[0].hold = 0.0; es.bands[0].decay = 1.2; }), 0.012f,
+                            "moving the Decay");
+            expectLessThan (maxStepWhen ([] (EngineSettings& es) { es.bands[0].hold = 0.4; es.bands[0].curve = 1.0f; es.bands[0].decay = 0.8; }), 0.012f,
+                            "moving the Curve");
+            expectLessThan (maxStepWhen ([] (EngineSettings& es) { es.bands[0].enabled = false; }), 0.012f, "muting the band");
+        }
+
+        beginTest ("Re-split bands (crossover moved mid-note) crossfade instead of jumping");
+        {
+            KickSet a, b;
+            for (int k = 0; k < 4; ++k)
+                for (auto* set : { &a, &b })
+                {
+                    auto& band = set->bands[(size_t) k];
+                    band.sampleRate = 48000.0;
+                    band.audio.setSize (1, 96000);
+                    const float sign = set == &a ? 1.0f : -1.0f;      // b is a's mirror: the worst case
+                    for (int i = 0; i < 96000; ++i)
+                        band.audio.setSample (0, i, k == 0 ? sign * 0.8f * (float) std::sin (MathConstants<double>::twoPi * 50.0 * i / 48000.0) : 0.0f);
+                }
+
+            KickEngine engine;
+            engine.prepare (48000.0);
+            EngineSettings es;
+            engine.trigger (&a, es, 1.0f);
+            AudioBuffer<float> out (2, 24000);
+            out.clear();
+            for (int pos = 0; pos < 24000; pos += 64)
+                engine.render (pos < 12032 ? &a : &b, es, out, pos, 64, pos < 12032 ? nullptr : &a);
+            float maxStep = 0.0f;
+            for (int i = 1; i < 24000; ++i)
+                maxStep = jmax (maxStep, std::abs (out.getSample (0, i) - out.getSample (0, i - 1)));
+            expectLessThan (maxStep, 0.012f);
+            expect (! engine.isCrossfadingSets());
+        }
+
+        beginTest ("Band edges are faded: they start and end at exactly zero");
+        {
+            auto buffer = makeNoise (2, 4800, 11);
+            KickBank::declickEdges (buffer, 48000.0);
+            int end = buffer.getNumSamples() - 1;
+            while (end > 0 && buffer.getSample (0, end) == 0.0f && buffer.getSample (1, end) == 0.0f)
+                --end;
+            for (int ch = 0; ch < 2; ++ch)
+            {
+                expectEquals (buffer.getSample (ch, 0), 0.0f);
+                expectLessThan (std::abs (buffer.getSample (ch, end)), 0.01f);
+            }
+        }
+
         beginTest ("Tune Body plays the kick in the key's nearest octave");
         {
             TailSettings t;

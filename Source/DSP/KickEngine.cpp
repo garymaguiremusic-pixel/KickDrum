@@ -50,6 +50,9 @@ namespace kd
     void KickEngine::prepare (double sr)
     {
         sampleRate = sr > 0.0 ? sr : 44100.0;
+        envCoef = (float) (1.0 - std::exp (-1.0 / (sampleRate * kEnvelopeGlide)));
+        gainCoef = (float) (1.0 - std::exp (-1.0 / (sampleRate * kGainGlide)));
+        setFadeStep = (float) (1.0 / (sampleRate * kSetCrossfade));
         reset();
     }
 
@@ -57,6 +60,9 @@ namespace kd
     {
         for (auto& v : voices)
             v = Voice();
+        gainsInitialised = false;
+        setFade = 1.0f;
+        lastSet = nullptr;
     }
 
     void KickEngine::trigger (const KickSet* set, const EngineSettings& settings, float velocity, uint8 bandMask)
@@ -86,6 +92,7 @@ namespace kd
         v.active = true;
         v.order = nextOrder++;
         v.mask = bandMask;
+        v.env = settings.bands;     // a new hit starts exactly on the current settings
         const float sens = jlimit (0.0f, 1.0f, settings.velocitySensitivity);
         v.velocityGain = 1.0f - sens * (1.0f - jlimit (0.0f, 1.0f, velocity));
 
@@ -146,7 +153,8 @@ namespace kd
         return ((c3 * frac + c2) * frac + c1) * frac + x0;
     }
 
-    void KickEngine::render (const KickSet* set, const EngineSettings& settings, AudioBuffer<float>& out, int start, int num) noexcept
+    void KickEngine::render (const KickSet* set, const EngineSettings& settings, AudioBuffer<float>& out, int start, int num,
+                             const KickSet* previous) noexcept
     {
         if (num <= 0)
             return;
@@ -155,18 +163,30 @@ namespace kd
         const double dt = 1.0 / sampleRate;
         const float chokeStep = (float) (dt / kChokeSeconds);
 
-        // per-block linear ramps of the band levels (no zipper noise when automating)
-        std::array<float, kNumBands> gainFrom = lastGain, gainStep {};
-        for (int b = 0; b < kNumBands; ++b)
+        // the band split changed under playing hits: crossfade from the old buffers
+        if (set != lastSet)
         {
-            const float target = settings.bands[(size_t) b].enabled ? settings.bands[(size_t) b].gain : 0.0f;
-            gainStep[(size_t) b] = (target - gainFrom[(size_t) b]) / (float) num;
-            lastGain[(size_t) b] = target;
+            setFade = (lastSet != nullptr && previous != nullptr && isPlaying()) ? 0.0f : 1.0f;
+            lastSet = set;
+        }
+        if (previous == nullptr)
+            setFade = 1.0f;
+
+        std::array<float, kNumBands> targetGain {};
+        for (int b = 0; b < kNumBands; ++b)
+            targetGain[(size_t) b] = settings.bands[(size_t) b].enabled ? settings.bands[(size_t) b].gain : 0.0f;
+        if (! gainsInitialised)
+        {
+            bandGain = targetGain;
+            gainsInitialised = true;
         }
 
-        double longest = 0.0;
+        double targetLongest = 0.0;
         for (auto& b : settings.bands)
-            longest = jmax (longest, b.length());
+            targetLongest = jmax (targetLongest, b.length());
+
+        // per-sample level smoothing, shared by every hit (sample-accurate, no zipper or click)
+        const std::array<float, kNumBands> gainAtStart = bandGain;
 
         for (auto& v : voices)
         {
@@ -178,6 +198,9 @@ namespace kd
                 v.active = false;
                 continue;
             }
+
+            std::array<float, kNumBands> g = gainAtStart;
+            float fade = setFade;
 
             for (int i = 0; i < num; ++i)
             {
@@ -191,7 +214,23 @@ namespace kd
                     }
                 }
 
-                if (v.t > longest)
+                // the hit's envelope glides towards the knobs (edits never make it jump)
+                double longest = targetLongest;
+                for (int b = 0; b < kNumBands; ++b)
+                {
+                    auto& e = v.env[(size_t) b];
+                    const auto& target = settings.bands[(size_t) b];
+                    e.attack += (target.attack - e.attack) * envCoef;
+                    e.hold   += (target.hold - e.hold) * envCoef;
+                    e.decay  += (target.decay - e.decay) * envCoef;
+                    e.curve  += (target.curve - e.curve) * envCoef;
+                    longest = jmax (longest, e.length());
+                    g[(size_t) b] += (targetGain[(size_t) b] - g[(size_t) b]) * gainCoef;
+                }
+                if (fade < 1.0f)
+                    fade = jmin (1.0f, fade + setFadeStep);
+
+                if (v.t > longest + 0.01)
                 {
                     v.active = false;
                     break;
@@ -204,12 +243,11 @@ namespace kd
                     if ((v.mask & (1 << b)) == 0)
                         continue;
 
-                    const auto& bs = settings.bands[(size_t) b];
-                    const float g = (gainFrom[(size_t) b] + gainStep[(size_t) b] * (float) i);
-                    if (g <= 0.0f)
+                    const float gain = g[(size_t) b];
+                    if (gain <= 1.0e-6f)
                         continue;
 
-                    const float env = envelopeAt (bs, v.t);
+                    const float env = envelopeAt (v.env[(size_t) b], v.t);
                     if (env <= 0.0f)
                         continue;
 
@@ -218,6 +256,16 @@ namespace kd
 
                     float l = readSample (band, 0, pos);
                     float r = band.audio.getNumChannels() > 1 ? readSample (band, 1, pos) : l;
+
+                    if (fade < 1.0f && previous != nullptr)
+                    {
+                        const auto& old = previous->bands[(size_t) b];
+                        const double oldPos = v.t * v.ratio * old.sampleRate;
+                        const float ol = readSample (old, 0, oldPos);
+                        const float orr = old.audio.getNumChannels() > 1 ? readSample (old, 1, oldPos) : ol;
+                        l = l * fade + ol * (1.0f - fade);
+                        r = r * fade + orr * (1.0f - fade);
+                    }
 
                     if (b == 0 && v.tail)
                     {
@@ -236,9 +284,8 @@ namespace kd
                         }
                     }
 
-                    const float gain = env * g;
-                    left += l * gain;
-                    right += r * gain;
+                    left += l * env * gain;
+                    right += r * env * gain;
                 }
 
                 // advance the tail oscillator: the kick's own pitch, then a glide to the key
@@ -259,20 +306,27 @@ namespace kd
                     }
                 }
 
-                const float g = v.velocityGain * v.choke;
+                const float vg = v.velocityGain * v.choke;
                 if (outChans == 1)
                 {
-                    out.addSample (0, start + i, 0.5f * (left + right) * g);
+                    out.addSample (0, start + i, 0.5f * (left + right) * vg);
                 }
                 else
                 {
-                    out.addSample (0, start + i, left * g);
-                    out.addSample (1, start + i, right * g);
+                    out.addSample (0, start + i, left * vg);
+                    out.addSample (1, start + i, right * vg);
                 }
 
                 v.t += dt;
             }
         }
+
+        // advance the shared smoothers over the block (also when nothing is playing)
+        for (int i = 0; i < num; ++i)
+            for (int b = 0; b < kNumBands; ++b)
+                bandGain[(size_t) b] += (targetGain[(size_t) b] - bandGain[(size_t) b]) * gainCoef;
+        if (setFade < 1.0f)
+            setFade = jmin (1.0f, setFade + setFadeStep * (float) num);
     }
 
     double KickEngine::getPlayheadSeconds() const noexcept
