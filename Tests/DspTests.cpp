@@ -7,6 +7,7 @@
 #include "DSP/OutputRenderer.h"
 #include <juce_audio_formats/juce_audio_formats.h>
 #include "PluginProcessor.h"
+#include "UI/Shared/VirusComponents.h"
 
 using namespace juce;
 using namespace kd;
@@ -471,17 +472,51 @@ public:
             expect (info.bandOverviews[3] != nullptr && info.bandOverviews[3]->peak < 0.05f);   // a sine has no air
         }
 
-        beginTest ("Sync leaves room for the decay when Hold is longer than the note");
+        beginTest ("Length sets the whole band; Decay is the fade at its end");
         {
             KickDrumAudioProcessor p;
             auto set = [&p] (const String& id, float v) { auto* q = p.apvts.getParameter (id); q->setValueNotifyingHost (q->convertTo0to1 (v)); };
-            set (bandParam (0, BandParams::hold), 300.0f);
+            set (bandParam (0, BandParams::attack), 10.0f);
+            set (bandParam (0, BandParams::length), 400.0f);
+            set (bandParam (0, BandParams::decay), 150.0f);
+            auto b = p.makeEngineSettings().bands[0];
+            expectWithinAbsoluteError (b.length(), 0.4, 1.0e-4);
+            expectWithinAbsoluteError (b.decay, 0.15, 1.0e-4);
+            expectWithinAbsoluteError (b.hold, 0.24, 1.0e-4);
+
+            // a decay longer than the length fills it (after the attack)
+            set (bandParam (0, BandParams::decay), 2000.0f);
+            b = p.makeEngineSettings().bands[0];
+            expectWithinAbsoluteError (b.decay, 0.39, 1.0e-4);
+            expectWithinAbsoluteError (b.hold, 0.0, 1.0e-6);
+
+            // Sync: 1/8 at 120 BPM = 250 ms in total, and the decay still fades over it
             set (bandParam (0, BandParams::decayMode), 1.0f);
-            set (bandParam (0, BandParams::sync), 1.0f);      // 1/8 at 120 BPM = 250 ms
-            const auto es = p.makeEngineSettings();
-            const auto& b = es.bands[0];
+            set (bandParam (0, BandParams::sync), 1.0f);
+            b = p.makeEngineSettings().bands[0];
             expectWithinAbsoluteError (b.length(), 0.25, 1.0e-6);
-            expectGreaterOrEqual (b.decay, 0.25 * 0.4 - 1.0e-9);
+            expectWithinAbsoluteError (b.decay, 0.24, 1.0e-4);
+        }
+
+        beginTest ("Typed knob values are understood");
+        {
+            expectWithinAbsoluteError (parseValueText ("120", Unit::Ms), 120.0, 1.0e-9);
+            expectWithinAbsoluteError (parseValueText ("120 ms", Unit::Ms), 120.0, 1.0e-9);
+            expectWithinAbsoluteError (parseValueText ("1.5 s", Unit::Ms), 1500.0, 1.0e-9);
+            expectWithinAbsoluteError (parseValueText ("2k", Unit::Hz), 2000.0, 1.0e-9);
+            expectWithinAbsoluteError (parseValueText ("10 kHz", Unit::Hz), 10000.0, 1.0e-9);
+            expectWithinAbsoluteError (parseValueText ("-3.5 dB", Unit::Db), -3.5, 1.0e-9);
+            expectWithinAbsoluteError (parseValueText ("-inf", Unit::Db), -60.0, 1.0e-9);
+            expectWithinAbsoluteError (parseValueText ("4:1", Unit::Ratio), 4.0, 1.0e-9);
+            expectWithinAbsoluteError (parseValueText ("Exp 40", Unit::Curve), 40.0, 1.0e-9);
+            expectWithinAbsoluteError (parseValueText ("slow 30", Unit::Curve), -30.0, 1.0e-9);
+            expectWithinAbsoluteError (parseValueText ("-25", Unit::Curve), -25.0, 1.0e-9);
+            expectWithinAbsoluteError (parseValueText ("Linear", Unit::Curve), 0.0, 1.0e-9);
+            expectWithinAbsoluteError (parseValueText ("A1", Unit::Note), 33.0, 1.0e-9);
+            expectWithinAbsoluteError (parseValueText ("F#2", Unit::Note), 42.0, 1.0e-9);
+            expectWithinAbsoluteError (parseValueText ("Bb1", Unit::Note), 34.0, 1.0e-9);
+            expectWithinAbsoluteError (parseValueText ("36", Unit::Note), 36.0, 1.0e-9);
+            expect (std::isnan (parseValueText ("abc", Unit::Ms)));
         }
 
         beginTest ("The output render matches the instrument and finds where the hit ends");
@@ -515,6 +550,42 @@ public:
             for (int i = 0; i < 48000; ++i)
                 diff = jmax (diff, std::abs (delayed->audio.getSample (0, i) - hit->audio.getSample (0, i)));
             expectLessThan (diff, 1.0e-4f);
+        }
+
+        beginTest ("Double-click a knob and type a value");
+        {
+            KickDrumAudioProcessor p;
+            std::unique_ptr<AudioProcessorEditor> editor (p.createEditor());
+
+            std::function<VirusKnob* (Component&)> findKnob = [&] (Component& c) -> VirusKnob*
+            {
+                for (auto* child : c.getChildren())
+                {
+                    if (auto* k = dynamic_cast<VirusKnob*> (child); k != nullptr && k->getName() == "Length")
+                        return k;
+                    if (auto* k = findKnob (*child))
+                        return k;
+                }
+                return nullptr;
+            };
+            auto* knob = findKnob (*editor);
+            expect (knob != nullptr);
+            if (knob != nullptr)
+            {
+                knob->showValueEditor();
+                TextEditor* ed = nullptr;
+                for (auto* child : knob->getParentComponent()->getChildren())
+                    if (auto* t = dynamic_cast<TextEditor*> (child))
+                        ed = t;
+                expect (ed != nullptr);
+                if (ed != nullptr)
+                {
+                    ed->setText ("1.25 s");
+                    ed->onReturnKey();
+                    expectWithinAbsoluteError (p.apvts.getRawParameterValue (bandParam (0, BandParams::length))->load(), 1250.0f, 0.5f);
+                }
+            }
+            MessageManager::getInstance()->runDispatchLoopUntil (50);
         }
 
         beginTest ("Every factory preset loads");

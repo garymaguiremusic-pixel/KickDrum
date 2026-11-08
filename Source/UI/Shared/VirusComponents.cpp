@@ -19,6 +19,8 @@ String VirusKnob::getTooltip()
     String text = label.toUpperCase() + "  " + getValueText();
     if (! isEnabled() && inactiveHint.isNotEmpty())
         text << "\n" << inactiveHint;
+    else if (isEnabled())
+        text << "\nDouble-click to type a value, Alt-click to reset";
     return text;
 }
 
@@ -76,6 +78,12 @@ void VirusKnob::mouseDown (const MouseEvent& e)
     if (! isEnabled())
         return;
 
+    if (e.mods.isAltDown() || e.mods.isCommandDown())
+    {
+        setValueWithGesture (defaultValue);
+        return;
+    }
+
     dragging = true;
     lastDragY = e.position.y;
     if (onGestureBegin) onGestureBegin();
@@ -109,7 +117,66 @@ void VirusKnob::mouseUp (const MouseEvent&)
 void VirusKnob::mouseDoubleClick (const MouseEvent&)
 {
     if (isEnabled())
-        setValueWithGesture (defaultValue);
+        showValueEditor();
+}
+
+void VirusKnob::showValueEditor()
+{
+    auto* parent = getParentComponent();
+    if (parent == nullptr || valueEditor != nullptr)
+        return;
+
+    valueEditor = std::make_unique<TextEditor>();
+    auto& ed = *valueEditor;
+    ed.setFont (CustomLookAndFeel::uiFont (12.5f, true));
+    ed.setJustification (Justification::centred);
+    ed.setColour (TextEditor::backgroundColourId, VirusColours::lcdBottom);
+    ed.setColour (TextEditor::textColourId, Colours::white);
+    ed.setColour (TextEditor::outlineColourId, VirusColours::blue);
+    ed.setColour (TextEditor::focusedOutlineColourId, Colours::white);
+    ed.setColour (TextEditor::highlightColourId, VirusColours::blueGlow.withAlpha (0.7f));
+    ed.setColour (CaretComponent::caretColourId, Colours::white);
+    ed.setIndents (2, 3);
+    ed.setText (getValueText().upToFirstOccurrenceOf ("  (", false, false), false);
+    ed.selectAll();
+
+    const int w = jmax (getWidth(), 76), h = 22;
+    ed.setBounds (Rectangle<int> (w, h).withCentre (getBounds().getCentre()).constrainedWithin (parent->getLocalBounds()));
+    ed.onReturnKey = [this] { closeValueEditor (true); };
+    ed.onEscapeKey = [this] { closeValueEditor (false); };
+    ed.onFocusLost = [this] { closeValueEditor (true); };
+
+    parent->addAndMakeVisible (ed);
+    ed.grabKeyboardFocus();
+}
+
+void VirusKnob::closeValueEditor (bool apply)
+{
+    if (valueEditor == nullptr)
+        return;
+
+    // take it out first: removing the editor makes it lose focus, which calls back in here
+    auto ed = std::move (valueEditor);
+    const auto text = ed->getText().trim();
+    ed->onFocusLost = nullptr;
+    if (auto* parent = ed->getParentComponent())
+        parent->removeChildComponent (ed.get());
+
+    if (apply && text.isNotEmpty())
+    {
+        double v = std::numeric_limits<double>::quiet_NaN();
+        if (parseValue)
+            v = parseValue (text);
+        else if (text.containsAnyOf ("0123456789"))
+            v = text.retainCharacters ("-+0123456789.,").replaceCharacter (',', '.').getDoubleValue();
+
+        if (std::isfinite (v))
+            setValueWithGesture (v);
+    }
+    repaint();
+
+    // the editor may still be inside its own callback: delete it afterwards
+    MessageManager::callAsync ([e = std::shared_ptr<TextEditor> (std::move (ed))] {});
 }
 
 void VirusKnob::mouseWheelMove (const MouseEvent& e, const MouseWheelDetails& wheel)

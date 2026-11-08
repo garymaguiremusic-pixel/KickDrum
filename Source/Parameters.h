@@ -56,12 +56,12 @@ namespace kd
     namespace BandParams
     {
         inline constexpr const char* attack    = "Attack";
-        inline constexpr const char* hold      = "Hold";
+        inline constexpr const char* length    = "Length";   // whole band: attack + sustain + decay
         inline constexpr const char* decay     = "Decay";
         inline constexpr const char* curve     = "Curve";
         inline constexpr const char* level     = "Level";
-        inline constexpr const char* decayMode = "DecayMode";   // 0 = ms, 1 = sync
-        inline constexpr const char* sync      = "Sync";
+        inline constexpr const char* decayMode = "DecayMode";   // Length in 0 = ms, 1 = sync
+        inline constexpr const char* sync      = "Sync";        // synced Length
         inline constexpr const char* mute      = "Mute";
         inline constexpr const char* solo      = "Solo";
     }
@@ -170,6 +170,78 @@ namespace kd
     }
 
     //==============================================================================
+    /** What a typed value means, for knobs you can type into. */
+    enum class Unit { Plain, Ms, Hz, Db, Percent, Ratio, Curve, Note };
+
+    /** The first number in the text (with sign and decimal point), or NaN if there's none. */
+    inline double firstNumber (const juce::String& text)
+    {
+        auto t = text.replaceCharacter (',', '.');
+        int start = 0;
+        while (start < t.length() && ! juce::CharacterFunctions::isDigit (t[start]) && t[start] != '.')
+            ++start;
+        if (start >= t.length())
+            return std::numeric_limits<double>::quiet_NaN();
+        const bool negative = start > 0 && t[start - 1] == '-';
+        const auto number = t.substring (start).initialSectionContainingOnly ("0123456789.").getDoubleValue();
+        return negative ? -number : number;
+    }
+
+    /** Parses what was typed into a knob: "120", "120 ms", "1.5 s", "2k", "-3 dB", "-inf", "40 %",
+        "4:1", "Exp 40", "Slow 30", "Linear", "A1", "F#2", "Bb1". Returns NaN if it can't. */
+    inline double parseValueText (const juce::String& typed, Unit unit)
+    {
+        const auto text = typed.trim().toLowerCase();
+        const double nan = std::numeric_limits<double>::quiet_NaN();
+        const double n = firstNumber (text);
+
+        switch (unit)
+        {
+            case Unit::Ms:
+                if (std::isnan (n)) return nan;
+                // "ms" (or no unit) = milliseconds, "s" / "sec" = seconds
+                return (text.contains ("ms") || ! text.containsChar ('s')) ? n : n * 1000.0;
+
+            case Unit::Hz:
+                if (std::isnan (n)) return nan;
+                return text.containsChar ('k') ? n * 1000.0 : n;
+
+            case Unit::Db:
+                if (text.contains ("inf")) return -60.0;
+                return n;
+
+            case Unit::Curve:
+                if (text.startsWith ("lin")) return 0.0;
+                if (std::isnan (n)) return nan;
+                if (text.startsWith ("slow") || text.startsWith ("log")) return -std::abs (n);
+                if (text.startsWith ("exp")) return std::abs (n);
+                return n;
+
+            case Unit::Note:
+            {
+                const auto t = text.removeCharacters (" ");
+                if (t.isEmpty()) return nan;
+                const int letter = juce::String ("c d ef g a b").indexOfChar (t[0]);   // semitone of each letter
+                if (letter < 0 || t[0] == ' ')
+                    return n;                                  // a MIDI note number
+                int note = letter, pos = 1;
+                if (t[pos] == '#') { ++note; ++pos; }
+                else if (t[pos] == 'b' && t.length() > pos + 1) { --note; ++pos; }
+                const auto octaveText = t.substring (pos);
+                if (! octaveText.containsAnyOf ("0123456789")) return nan;
+                const int octave = octaveText.getIntValue();
+                return (octave + 1) * 12 + note;
+            }
+
+            case Unit::Ratio:
+            case Unit::Percent:
+            case Unit::Plain:
+            default:
+                return n;
+        }
+    }
+
+    //==============================================================================
     inline juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     {
         using namespace juce;
@@ -205,12 +277,12 @@ namespace kd
         {
             const auto prefix = bandNames[b] + " ";
             addFloat (bandParam (b, BandParams::attack), prefix + "Attack", skewedRange (0.0f, 500.0f, 20.0f), 0.0f, formatMs, "ms");
-            addFloat (bandParam (b, BandParams::hold),   prefix + "Hold",   skewedRange (0.0f, 2000.0f, 150.0f), 300.0f, formatMs, "ms");
-            addFloat (bandParam (b, BandParams::decay),  prefix + "Decay",  skewedRange (5.0f, 4000.0f, 400.0f), 600.0f, formatMs, "ms");
+            addFloat (bandParam (b, BandParams::length), prefix + "Length", skewedRange (10.0f, 8000.0f, 500.0f), 900.0f, formatMs, "ms");
+            addFloat (bandParam (b, BandParams::decay),  prefix + "Decay",  skewedRange (5.0f, 8000.0f, 400.0f), 600.0f, formatMs, "ms");
             addFloat (bandParam (b, BandParams::curve),  prefix + "Curve",  { -100.0f, 100.0f }, 40.0f, formatCurve);
             addFloat (bandParam (b, BandParams::level),  prefix + "Level",  { -60.0f, 12.0f }, 0.0f, formatDb, "dB");
-            addChoice (bandParam (b, BandParams::decayMode), prefix + "Decay Mode", { "ms", "Sync" }, 0);
-            addChoice (bandParam (b, BandParams::sync),  prefix + "Decay Sync", getSyncNames(), 2);
+            addChoice (bandParam (b, BandParams::decayMode), prefix + "Length Mode", { "ms", "Sync" }, 0);
+            addChoice (bandParam (b, BandParams::sync),  prefix + "Length Sync", getSyncNames(), 2);
             addBool (bandParam (b, BandParams::mute), prefix + "Mute", false);
             addBool (bandParam (b, BandParams::solo), prefix + "Solo", false);
         }

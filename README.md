@@ -38,20 +38,23 @@ Each band has:
   line, the playhead and, on the Sub band, the tuned tail. All four use the same time scale.
   Click to hear that band alone; double-click to open its browser; drop a file on it to give it
   its own sample.
-* **Attack / Hold / Decay / Curve / Level**, plus **M**ute and **S**olo.
+* **Attack / Length / Decay / Curve / Level**, plus **M**ute and **S**olo. **Length** is how long the
+  band lasts in total; **Decay** is the fade at its end (it can't be longer than the Length), and the
+  band stays at full level in between.
 * **Curve** shapes the decay: right of centre is exponential (drops fast, then a long soft tail),
   centre is linear, left is a slow start (holds its level, then falls). Every setting fades
   smoothly to silence.
-* **Decay: ms or Sync**. In Sync, the whole band (attack + hold + decay) lasts exactly 1/16, 1/8,
-  1/4, 1/2 or 1 bar at the host tempo (or the internal tempo when there is none). Attack + Hold use
-  at most 60 % of the note, so even a short 1/8 note always gets a smooth decay instead of a cut.
+* **Length: ms or Sync**. In Sync, the band lasts exactly 1/16, 1/8, 1/4, 1/2 or 1 bar at the host
+  tempo (or the internal tempo when there is none), and the Decay still fades it out smoothly.
+* **Every knob**: double-click to type a value (`120`, `1.5 s`, `-3 dB`, `2k`, `4:1`, `Exp 40`,
+  `A1` ...; Enter applies, Esc cancels). Alt-click (or Ctrl-click) resets it.
 * **Mini browser**: the band's sample (MAIN = the main kick, OWN = its own), favourite star,
   previous/next (they load into this band only, with audition), **Browse** (the full browser, for
   this band only) and **Use Main** (back to the main kick).
 
 ## Output display
 
-Shows one full-velocity hit as it leaves the instrument (all bands, the tail, the FX and the volume),
+The bottom row shows one full-velocity hit as it leaves the instrument (all bands, the tail, the FX and the volume),
 on a bar/beat grid at the current tempo. It is rendered in the background and updates as you edit,
 so you don't need to play a note. **Output view** sets how much it shows (1/4, 1/2, 1 bar or 2 bars),
 and it reads out how long the hit lasts (until it stays below -60 dBFS) in beats, and its peak level.
@@ -63,7 +66,7 @@ full-rate audio, so it stays detailed when the window is enlarged. Click it to p
 * The Sub band's pitch is detected when a kick loads (shown as KICK, and on the main display).
 * **Tail On**: from **Start**, the Sub band hands over to a pure sine that continues the kick's own
   tone at the same phase and level (no dip, no click), then **Glide**s to the **Key**. Its length follows
-  the Sub band's envelope, so set the Sub Decay to Sync **1/2** or **1 Bar** to carry the tail out past
+  the Sub band's envelope, so set the Sub Length to Sync **1/2** or **1 Bar** to carry the tail out past
   the 1/8 note to a full bar.
 * **Key** knob: locked to the notes of the **Root / Scale** you pick (Chromatic, Major, Minor, Harmonic
   Minor, Dorian, Phrygian, Mixolydian, the pentatonics, Phrygian Dominant).

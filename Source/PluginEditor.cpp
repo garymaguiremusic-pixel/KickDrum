@@ -49,7 +49,7 @@ KickDrumAudioProcessorEditor::BandControls::BandControls (KickDrumAudioProcessor
     : band (b),
       view (b),
       modeButtons (*p.apvts.getParameter (bandParam (b, BandParams::decayMode)), { "ms", "Sync" },
-                   "Decay in milliseconds, or Sync: the band lasts exactly the note length (attack + hold + decay)")
+                   "Length in milliseconds, or Sync: the band lasts exactly a note length at the tempo")
 {
 }
 
@@ -187,7 +187,7 @@ KickDrumAudioProcessorEditor::Content::Content (KickDrumAudioProcessor& p)
     addToggle (tailOnButton, ParamIDs::tailOn,
                "Tail: from Start, the Sub band hands over to a pure sine that continues the kick's own tone "
                "(same phase and level) and glides to the Key. Its length follows the Sub band's envelope: "
-               "set the Sub Decay to Sync 1/2 or 1 Bar for a long tail");
+               "set the Sub Length to Sync 1/2 or 1 Bar for a long tail");
     addToggle (tuneBodyButton, ParamIDs::tuneBody,
                "Tune Body: re-pitch the whole kick so its detected pitch lands on the Key (nearest octave)");
     matchButton.setTooltip ("Set the Key to the kick's detected pitch (snapped to the scale)");
@@ -200,11 +200,11 @@ KickDrumAudioProcessorEditor::Content::Content (KickDrumAudioProcessor& p)
                                        roundToInt (processor.apvts.getRawParameterValue (ParamIDs::tailRoot)->load()),
                                        roundToInt (processor.apvts.getRawParameterValue (ParamIDs::tailScale)->load()));
         return noteName (note) + "  (" + String (noteToHz (note), 1) + " Hz)";
-    });
+    }, Unit::Note);
     keyKnob.setTooltip ("The tail's key. It locks to the notes of the Root / Scale");
-    addKnob (tailStartKnob, ParamIDs::tailStart, formatMs);
-    addKnob (glideKnob, ParamIDs::tailGlide, formatMs);
-    addKnob (tailLevelKnob, ParamIDs::tailLevel, formatDb);
+    addKnob (tailStartKnob, ParamIDs::tailStart, formatMs, Unit::Ms);
+    addKnob (glideKnob, ParamIDs::tailGlide, formatMs, Unit::Ms);
+    addKnob (tailLevelKnob, ParamIDs::tailLevel, formatDb, Unit::Db);
     addCombo (rootBox, ParamIDs::tailRoot, getKeyNames(), "Scale root: the Key knob locks to this scale");
     addCombo (scaleBox, ParamIDs::tailScale, getScaleNames(), "Scale: the Key knob locks to its notes");
     addAndMakeVisible (keyLcd);
@@ -214,27 +214,36 @@ KickDrumAudioProcessorEditor::Content::Content (KickDrumAudioProcessor& p)
     // Saturation ----------------------------------------------------------------------------
     addToggle (satOnButton, ParamIDs::satOn, "Saturation on/off (4x oversampled, linear-phase filters)");
     addCombo (satTypeBox, ParamIDs::satType, getSatTypeNames(), "Saturation type");
-    addKnob (driveKnob, ParamIDs::satDrive, formatDb);
+    addKnob (driveKnob, ParamIDs::satDrive, formatDb, Unit::Db);
     addKnob (toneKnob, ParamIDs::satTone, [] (float v) { return v >= 99.5f ? String ("Open") : formatHz (1000.0f * std::pow (20.0f, v * 0.01f)); });
-    addKnob (satMixKnob, ParamIDs::satMix, formatPercent);
-    addKnob (satLevelKnob, ParamIDs::satLevel, formatDb);
+    toneKnob.parseValue = [] (const String& text) -> double
+    {
+        // typed as a frequency (1 kHz .. 20 kHz) or "open"; a plain small number is a percentage
+        if (text.trim().toLowerCase().startsWith ("open")) return 100.0;
+        const double hz = parseValueText (text, Unit::Hz);
+        if (std::isnan (hz)) return hz;
+        if (hz <= 100.0 && ! text.containsIgnoreCase ("hz") && ! text.containsIgnoreCase ("k")) return hz;
+        return 100.0 * std::log (jlimit (1000.0, 20000.0, hz) / 1000.0) / std::log (20.0);
+    };
+    addKnob (satMixKnob, ParamIDs::satMix, formatPercent, Unit::Percent);
+    addKnob (satLevelKnob, ParamIDs::satLevel, formatDb, Unit::Db);
     addAndMakeVisible (driveLcd);
     addAndMakeVisible (satCurve);
 
     // Compressor ------------------------------------------------------------------------------
     addToggle (compOnButton, ParamIDs::compOn, "Clean compressor on/off (feed-forward, soft knee, stereo linked)");
     addAndMakeVisible (grMeter);
-    addKnob (threshKnob, ParamIDs::compThresh, formatDb);
-    addKnob (ratioKnob, ParamIDs::compRatio, [] (float v) { return String (v, v < 10.0f ? 1 : 0) + ":1"; });
-    addKnob (compAttackKnob, ParamIDs::compAttack, formatMs);
-    addKnob (compReleaseKnob, ParamIDs::compRelease, formatMs);
-    addKnob (makeupKnob, ParamIDs::compMakeup, formatDb);
-    addKnob (compMixKnob, ParamIDs::compMix, formatPercent);
+    addKnob (threshKnob, ParamIDs::compThresh, formatDb, Unit::Db);
+    addKnob (ratioKnob, ParamIDs::compRatio, [] (float v) { return String (v, v < 10.0f ? 1 : 0) + ":1"; }, Unit::Ratio);
+    addKnob (compAttackKnob, ParamIDs::compAttack, formatMs, Unit::Ms);
+    addKnob (compReleaseKnob, ParamIDs::compRelease, formatMs, Unit::Ms);
+    addKnob (makeupKnob, ParamIDs::compMakeup, formatDb, Unit::Db);
+    addKnob (compMixKnob, ParamIDs::compMix, formatPercent, Unit::Percent);
     addAndMakeVisible (threshLcd);
 
     // Master ------------------------------------------------------------------------------------
-    addKnob (volumeKnob, ParamIDs::volume, formatDb);
-    addKnob (velKnob, ParamIDs::velSens, formatPercent);
+    addKnob (volumeKnob, ParamIDs::volume, formatDb, Unit::Db);
+    addKnob (velKnob, ParamIDs::velSens, formatPercent, Unit::Percent);
     velKnob.setTooltip ("Velocity sensitivity");
     addAndMakeVisible (volumeLcd);
     addAndMakeVisible (tempoField);
@@ -252,9 +261,11 @@ KickDrumAudioProcessorEditor::Content::Content (KickDrumAudioProcessor& p)
 KickDrumAudioProcessorEditor::Content::~Content() = default;
 
 //==============================================================================
-void KickDrumAudioProcessorEditor::Content::addKnob (VirusKnob& knob, const String& id, std::function<String (float)> describe)
+void KickDrumAudioProcessorEditor::Content::addKnob (VirusKnob& knob, const String& id, std::function<String (float)> describe,
+                                                     Unit unit)
 {
     knob.describeValue = std::move (describe);
+    knob.parseValue = [unit] (const String& text) { return parseValueText (text, unit); };
     knobAttachments.push_back (std::make_unique<KnobAttachment> (*processor.apvts.getParameter (id), knob));
     addAndMakeVisible (knob);
 }
@@ -313,19 +324,21 @@ void KickDrumAudioProcessorEditor::Content::setupBand (BandControls& c)
     addAndMakeVisible (c.useMain);
 
     // envelope + level
-    addKnob (c.attack, bandParam (b, BandParams::attack), formatMs);
-    addKnob (c.hold, bandParam (b, BandParams::hold), formatMs);
-    addKnob (c.decay, bandParam (b, BandParams::decay), formatMs);
-    addKnob (c.curve, bandParam (b, BandParams::curve), formatCurve);
+    addKnob (c.attack, bandParam (b, BandParams::attack), formatMs, Unit::Ms);
+    addKnob (c.length, bandParam (b, BandParams::length), formatMs, Unit::Ms);
+    addKnob (c.decay, bandParam (b, BandParams::decay), formatMs, Unit::Ms);
+    addKnob (c.curve, bandParam (b, BandParams::curve), formatCurve, Unit::Curve);
     c.curve.getProperties().set ("bipolar", true);
-    addKnob (c.level, bandParam (b, BandParams::level), formatDb);
-    c.decay.inactiveHint = "Decay is synced to the note length (switch to ms to set it here)";
+    addKnob (c.level, bandParam (b, BandParams::level), formatDb, Unit::Db);
+    c.length.setTooltip ("How long the band lasts in total (attack, full level, then the decay fade)");
+    c.length.inactiveHint = "Length is synced to the note (switch to ms to set it here)";
+    c.decay.setTooltip ("The fade at the end of the band. It can't be longer than the Length");
     c.curve.setTooltip ("Decay curve. Right: exponential (drops fast, then a long soft tail). Centre: linear. "
                        "Left: slow start (holds its level, then falls). Every setting fades smoothly to silence");
 
     addAndMakeVisible (c.modeButtons);
     addCombo (c.syncBox, bandParam (b, BandParams::sync), getSyncNames(),
-              "Synced length of the whole band (attack + hold + decay), at the host tempo");
+              "Synced length of the whole band, at the host tempo");
     addToggle (c.mute, bandParam (b, BandParams::mute), "Mute the " + name + " band");
     addToggle (c.solo, bandParam (b, BandParams::solo), "Solo the " + name + " band");
 }
@@ -445,7 +458,7 @@ void KickDrumAudioProcessorEditor::Content::updateDisplays()
         c.view.setState (s);
         c.view.setPlayhead (playhead);
 
-        c.decay.setEnabled (! synced);
+        c.length.setEnabled (! synced);
         c.syncBox.setEnabled (synced);
 
         // mini browser
@@ -553,17 +566,17 @@ void KickDrumAudioProcessorEditor::Content::resized()
         xoverFields[(size_t) i]->setBounds (660 + i * 74, 138, 70, 24);
     slopeButtons.setBounds (884, 138, 204, 24);
 
-    // Output
-    outputView.setBounds (12, 170, 900, 122);
-    outViewButtons.setBounds (920, 188, 168, 24);
-    outLengthLcd.setBounds (920, 218, 168, 26);
-    outPeakLcd.setBounds (920, 250, 168, 26);
+    // Output (bottom row, under the FX)
+    outputView.setBounds (12, 756, 900, 122);
+    outViewButtons.setBounds (920, 774, 168, 24);
+    outLengthLcd.setBounds (920, 804, 168, 26);
+    outPeakLcd.setBounds (920, 836, 168, 26);
 
     // Bands
     for (int b = 0; b < kNumBands; ++b)
     {
         auto& c = *bands[(size_t) b];
-        const int x = 12 + b * 271, y = 300;
+        const int x = 12 + b * 271, y = 170;
         c.panel = { (float) x, (float) y, 263.0f, 314.0f };
 
         c.view.setBounds (x + 8, y + 24, 247, 98);
@@ -574,7 +587,7 @@ void KickDrumAudioProcessorEditor::Content::resized()
         c.browse.setBounds (x + 90, y + 153, 80, 24);
         c.useMain.setBounds (x + 174, y + 153, 81, 24);
 
-        VirusKnob* knobs[] { &c.attack, &c.hold, &c.decay, &c.curve, &c.level };
+        VirusKnob* knobs[] { &c.attack, &c.length, &c.decay, &c.curve, &c.level };
         for (int k = 0; k < 5; ++k)
             knobs[k]->setBounds (x + 8 + roundToInt (k * 49.4f), y + 182, 49, 68);
 
@@ -585,13 +598,13 @@ void KickDrumAudioProcessorEditor::Content::resized()
     }
 
     // Bottom row
-    tailPanel   = { 12.0f, 622.0f, 300.0f, 256.0f };
-    satPanel    = { 320.0f, 622.0f, 300.0f, 256.0f };
-    compPanel   = { 628.0f, 622.0f, 300.0f, 256.0f };
-    masterPanel = { 936.0f, 622.0f, 152.0f, 256.0f };
+    tailPanel   = { 12.0f, 492.0f, 300.0f, 256.0f };
+    satPanel    = { 320.0f, 492.0f, 300.0f, 256.0f };
+    compPanel   = { 628.0f, 492.0f, 300.0f, 256.0f };
+    masterPanel = { 936.0f, 492.0f, 152.0f, 256.0f };
 
     {
-        const int x = 12, y = 622;
+        const int x = 12, y = 492;
         tailOnButton.setBounds (x + 10, y + 28, 84, 26);
         tuneBodyButton.setBounds (x + 100, y + 28, 92, 26);
         matchButton.setBounds (x + 198, y + 28, 92, 26);
@@ -605,7 +618,7 @@ void KickDrumAudioProcessorEditor::Content::resized()
         tailLevelKnob.setBounds (x + 232, y + 168, 60, 72);
     }
     {
-        const int x = 320, y = 622;
+        const int x = 320, y = 492;
         satOnButton.setBounds (x + 10, y + 28, 60, 26);
         satTypeBox.setBounds (x + 76, y + 29, 214, 24);
         driveKnob.setBounds (x + 14, y + 66, 84, 84);
@@ -616,7 +629,7 @@ void KickDrumAudioProcessorEditor::Content::resized()
         satLevelKnob.setBounds (x + 232, y + 168, 60, 72);
     }
     {
-        const int x = 628, y = 622;
+        const int x = 628, y = 492;
         compOnButton.setBounds (x + 10, y + 28, 60, 26);
         grMeter.setBounds (x + 76, y + 29, 214, 24);
         threshKnob.setBounds (x + 14, y + 66, 84, 84);
@@ -628,7 +641,7 @@ void KickDrumAudioProcessorEditor::Content::resized()
         compMixKnob.setBounds (x + 202, y + 168, 60, 72);
     }
     {
-        const int x = 936, y = 622;
+        const int x = 936, y = 492;
         volumeKnob.setBounds (x + 34, y + 28, 84, 84);
         volumeLcd.setBounds (x + 10, y + 118, 132, 26);
         velKnob.setBounds (x + 46, y + 148, 60, 70);
@@ -650,7 +663,7 @@ void KickDrumAudioProcessorEditor::Content::paint (Graphics& g)
     drawWordmark (g, { 18.0f, 4.0f, 300.0f, 42.0f });
 
     CustomLookAndFeel::drawSmallLabel (g, "Preset", { 400.0f, 10.0f, 64.0f, 28.0f }, Justification::centredRight);
-    CustomLookAndFeel::drawSmallLabel (g, "Output view", { 920.0f, 170.0f, 168.0f, 16.0f }, Justification::centredLeft);
+    CustomLookAndFeel::drawSmallLabel (g, "Output view", { 920.0f, 756.0f, 168.0f, 16.0f }, Justification::centredLeft);
 
     const auto names = getBandNames();
     for (int b = 0; b < kNumBands; ++b)
@@ -662,7 +675,7 @@ void KickDrumAudioProcessorEditor::Content::paint (Graphics& g)
         g.setColour (kd::ui::bandColour (b));
         g.fillRoundedRectangle (c.panel.getX() + 8.0f, c.panel.getY() + 6.0f, 18.0f, 6.0f, 2.0f);
 
-        CustomLookAndFeel::drawSmallLabel (g, "Decay", { c.panel.getX() + 8.0f, c.panel.getY() + 262.0f, 88.0f, 14.0f },
+        CustomLookAndFeel::drawSmallLabel (g, "Length", { c.panel.getX() + 8.0f, c.panel.getY() + 262.0f, 88.0f, 14.0f },
                                            Justification::centredLeft);
         CustomLookAndFeel::drawSmallLabel (g, "Sync", { c.panel.getX() + 100.0f, c.panel.getY() + 262.0f, 75.0f, 14.0f },
                                            Justification::centredLeft);

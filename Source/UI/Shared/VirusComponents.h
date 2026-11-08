@@ -7,7 +7,8 @@
 /**
     Rotary knob with Virus-style interaction:
       - vertical drag (shift = fine), scroll wheel (shift = fine)
-      - double-click resets to the default value
+      - double-click to type a value (Enter applies, Esc cancels)
+      - Alt-click or Ctrl/Cmd-click resets to the default value
       - small knobs show their label underneath, which swaps to the value
         (in real units, via describeValue) while hovering or dragging
       - tooltips show real units
@@ -25,6 +26,9 @@ public:
 
     std::function<void()> onGestureBegin, onGestureEnd;
     std::function<juce::String (float)> describeValue;   // real units for the label and tooltip
+    /** Turns typed text into a value ("120 ms", "1.5 s", "-3 dB" ...). Returns NaN if it can't.
+        Without it, the first number in the text is used. */
+    std::function<double (const juce::String&)> parseValue;
     juce::String inactiveHint;                           // shown in the tooltip while disabled
 
     juce::String getTooltip() override;
@@ -39,8 +43,13 @@ public:
 
     juce::String getValueText() const;
 
+    /** Opens the type-in field (double-click does this). */
+    void showValueEditor();
+
 private:
     void setValueWithGesture (double v);
+    void closeValueEditor (bool apply);
+    std::unique_ptr<juce::TextEditor> valueEditor;
 
     Size knobSize;
     juce::String label;

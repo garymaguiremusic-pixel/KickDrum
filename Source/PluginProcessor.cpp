@@ -25,7 +25,7 @@ struct KickDrumAudioProcessor::ParamPointers
         {
             auto& band = bands[(size_t) b];
             band.attack    = get (bandParam (b, BandParams::attack));
-            band.hold      = get (bandParam (b, BandParams::hold));
+            band.length    = get (bandParam (b, BandParams::length));
             band.decay     = get (bandParam (b, BandParams::decay));
             band.curve     = get (bandParam (b, BandParams::curve));
             band.level     = get (bandParam (b, BandParams::level));
@@ -56,7 +56,7 @@ struct KickDrumAudioProcessor::ParamPointers
 
     struct Band
     {
-        std::atomic<float>* attack, *hold, *decay, *curve, *level, *decayMode, *sync, *mute, *solo;
+        std::atomic<float>* attack, *length, *decay, *curve, *level, *decayMode, *sync, *mute, *solo;
     };
 
     std::array<std::atomic<float>*, 3> xover {};
@@ -132,30 +132,17 @@ EngineSettings KickDrumAudioProcessor::makeEngineSettings() const
         const auto& p = params->bands[(size_t) i];
         auto& b = s.bands[(size_t) i];
         b.attack = val (p.attack) * 0.001;
-        b.hold = val (p.hold) * 0.001;
         b.curve = val (p.curve) * 0.01f;
         b.gain = val (p.level) <= -59.9f ? 0.0f : Decibels::decibelsToGain (val (p.level));
         b.enabled = anySolo ? on (p.solo) : ! on (p.mute);
 
-        if (idx (p.decayMode) == 1)
-        {
-            // Sync: the whole band (attack + hold + decay) lasts exactly the note length. Attack and
-            // Hold get at most 60 % of it, so the decay always has room to fade out smoothly
-            // (instead of a hard cut when the Hold is longer than a short note).
-            const double total = syncBeats (idx (p.sync)) * beatSeconds;
-            const double maxAttackHold = total * 0.6;
-            if (b.attack + b.hold > maxAttackHold)
-            {
-                const double scale = maxAttackHold / (b.attack + b.hold);
-                b.attack *= scale;
-                b.hold *= scale;
-            }
-            b.decay = total - b.attack - b.hold;
-        }
-        else
-        {
-            b.decay = val (p.decay) * 0.001;
-        }
+        // Length (ms, or synced to the note) is the whole band. The Decay is the fade at its
+        // end; whatever is left after the Attack holds at full level.
+        const double length = idx (p.decayMode) == 1 ? syncBeats (idx (p.sync)) * beatSeconds
+                                                     : val (p.length) * 0.001;
+        b.attack = jmin (b.attack, length);
+        b.decay = jmin (val (p.decay) * 0.001, length - b.attack);
+        b.hold = length - b.attack - b.decay;
     }
 
     s.tail.on = on (params->tailOn);

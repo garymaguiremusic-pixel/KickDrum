@@ -39,7 +39,7 @@ private:
         ArrowIconButton back { false }, next { true };
         juce::TextButton browse { "Browse" }, useMain { "Use Main" };
         VirusKnob attack { VirusKnob::Size::Small, "Attack" };
-        VirusKnob hold   { VirusKnob::Size::Small, "Hold" };
+        VirusKnob length { VirusKnob::Size::Small, "Length" };
         VirusKnob decay  { VirusKnob::Size::Small, "Decay" };
         VirusKnob curve  { VirusKnob::Size::Small, "Curve" };
         VirusKnob level  { VirusKnob::Size::Small, "Level" };
@@ -60,7 +60,8 @@ private:
         void updateDisplays();
 
     private:
-        void addKnob (VirusKnob&, const juce::String& paramID, std::function<juce::String (float)> describe = nullptr);
+        void addKnob (VirusKnob&, const juce::String& paramID, std::function<juce::String (float)> describe = nullptr,
+                      kd::Unit unit = kd::Unit::Plain);
         void addToggle (juce::TextButton&, const juce::String& paramID, const juce::String& tooltip);
         void addCombo (juce::ComboBox&, const juce::String& paramID, const juce::StringArray& items, const juce::String& tooltip);
         void setupBand (BandControls&);
