@@ -6,7 +6,8 @@
 //==============================================================================
 /**
     Rotary knob with Virus-style interaction:
-      - vertical drag (shift = fine), scroll wheel (shift = fine)
+      - vertical drag moves in whole steps (1.0); hold Shift for 0.1 steps
+      - scroll wheel: one notch = 1.0, or 0.1 with Shift
       - double-click to type a value (Enter applies, Esc cancels)
       - Alt-click or Ctrl/Cmd-click resets to the default value
       - small knobs show their label underneath, which swaps to the value
@@ -55,6 +56,8 @@ private:
     juce::String label;
     double defaultValue = 64.0;
     float lastDragY = 0.0f;
+    double dragValue = 0.0;          // un-snapped drag position
+    bool dragShift = false;
     bool dragging = false, hovering = false;
 };
 

@@ -816,6 +816,68 @@ public:
             }
         }
 
+        beginTest ("Every knob: wheel moves exactly 1.0 (0.1 with Shift), drags land on whole numbers");
+        {
+            KickDrumAudioProcessor p;
+            std::unique_ptr<AudioProcessorEditor> editor (p.createEditor());
+
+            std::vector<VirusKnob*> knobs;
+            std::function<void (Component&)> collect = [&] (Component& c)
+            {
+                for (auto* child : c.getChildren())
+                {
+                    if (auto* k = dynamic_cast<VirusKnob*> (child))
+                        knobs.push_back (k);
+                    collect (*child);
+                }
+            };
+            collect (*editor);
+            expectGreaterThan ((int) knobs.size(), 30);
+
+            auto source = Desktop::getInstance().getMainMouseSource();
+            auto event = [&source] (Component& c, Point<float> pos, ModifierKeys mods, Point<float> down)
+            {
+                return MouseEvent (source, pos, mods, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, &c, &c, Time::getCurrentTime(),
+                                   down, Time::getCurrentTime(), 1, false);
+            };
+            MouseWheelDetails notch;
+            notch.deltaX = 0.0f; notch.deltaY = 0.13f; notch.isReversed = false; notch.isSmooth = false; notch.isInertial = false;
+
+            for (auto* k : knobs)
+            {
+                if (! k->isEnabled())
+                    continue;
+                const auto name = k->getName();
+                const Point<float> centre (k->getWidth() * 0.5f, k->getHeight() * 0.5f);
+
+                // start from a whole value inside the range
+                k->setValue (std::round ((k->getMinimum() + k->getMaximum()) * 0.5), sendNotificationSync);
+                const double v0 = k->getValue();
+
+                k->mouseWheelMove (event (*k, centre, {}, centre), notch);
+                expectWithinAbsoluteError (k->getValue(), jmin (k->getMaximum(), v0 + 1.0), 2.0e-3, name + ": wheel up");
+
+                notch.deltaY = -0.13f;
+                k->mouseWheelMove (event (*k, centre, {}, centre), notch);
+                k->mouseWheelMove (event (*k, centre, {}, centre), notch);
+                expectWithinAbsoluteError (k->getValue(), jmax (k->getMinimum(), v0 - 1.0), 2.0e-3, name + ": wheel down");
+                notch.deltaY = 0.13f;
+
+                if (k->getMaximum() - k->getMinimum() >= 1.0 && name != "Key")
+                {
+                    const double v1 = k->getValue();
+                    k->mouseWheelMove (event (*k, centre, ModifierKeys::shiftModifier, centre), notch);
+                    expectWithinAbsoluteError (k->getValue(), v1 + 0.1, 2.0e-3, name + ": shift + wheel");
+                }
+
+                // drag up 13 pixels: whole number
+                k->mouseDown (event (*k, centre, {}, centre));
+                k->mouseDrag (event (*k, centre.translated (0.0f, -13.0f), {}, centre));
+                k->mouseUp (event (*k, centre.translated (0.0f, -13.0f), {}, centre));
+                expectWithinAbsoluteError (k->getValue(), std::round (k->getValue()), 2.0e-3, name + ": drag");
+            }
+        }
+
         beginTest ("Every factory preset loads");
         {
             KickDrumAudioProcessor p;

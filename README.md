@@ -56,6 +56,9 @@ Each band has:
   (about 15 ms) instead of jumping; level, mute and solo changes fade over ~10 ms; and when the
   crossover moves mid-note, the new band split crossfades in over 10 ms. Every band's audio starts
   with a 0.5 ms fade-in from zero and ends at a zero crossing with a 5 ms fade-out.
+* **Every knob** moves in whole steps of 1.0 (1 ms, 1 dB, 1 %, 1 semitone ...), as in Virus Delay:
+  drag (the full range in 200 pixels) or use the mouse wheel (one notch = 1.0). Hold **Shift** for
+  0.1 steps.
 * **Every knob**: double-click to type a value (`120`, `1.5 s`, `-3 dB`, `2k`, `4:1`, `Exp 40`,
   `A1` ...; Enter applies, Esc cancels). Alt-click (or Ctrl-click) resets it.
 * **Mini browser**: the band's sample (MAIN = the main kick, OWN = its own), favourite star,

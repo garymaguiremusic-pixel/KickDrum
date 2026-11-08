@@ -86,6 +86,8 @@ void VirusKnob::mouseDown (const MouseEvent& e)
 
     dragging = true;
     lastDragY = e.position.y;
+    dragValue = getValue();
+    dragShift = e.mods.isShiftDown();
     if (onGestureBegin) onGestureBegin();
     repaint();
 }
@@ -95,13 +97,34 @@ void VirusKnob::mouseDrag (const MouseEvent& e)
     if (! isEnabled() || ! dragging)
         return;
 
-    // Incremental drag so pressing/releasing shift mid-drag never jumps.
-    const float pixelsForFullRange = e.mods.isShiftDown() ? 1500.0f : 200.0f;
-    const double delta = (double) (lastDragY - e.position.y) * (getMaximum() - getMinimum()) / pixelsForFullRange;
+    // Incremental drag, as in Virus Delay: whole steps (1.0) normally, 0.1 steps with Shift.
+    // Pressing or releasing Shift mid-drag continues from the current value.
+    const bool shift = e.mods.isShiftDown();
+    if (shift != dragShift)
+    {
+        dragShift = shift;
+        dragValue = getValue();
+    }
+
+    const double pixels = (double) (lastDragY - e.position.y);
     lastDragY = e.position.y;
 
-    if (std::abs (delta) > 1.0e-9)
-        setValue (jlimit (getMinimum(), getMaximum(), getValue() + delta), sendNotificationSync);
+    if (shift)
+    {
+        dragValue += pixels * 0.05;                               // 0.1 every 2 pixels
+    }
+    else
+    {
+        // the full range in 200 pixels, following the knob's curve (ms and Hz knobs are skewed)
+        const double proportion = jlimit (0.0, 1.0, valueToProportionOfLength (dragValue) + pixels / 200.0);
+        dragValue = proportionOfLengthToValue (proportion);
+    }
+    dragValue = jlimit (getMinimum(), getMaximum(), dragValue);
+
+    const double snapped = jlimit (getMinimum(), getMaximum(),
+                                   shift ? std::round (dragValue * 10.0) / 10.0 : std::round (dragValue));
+    if (std::abs (snapped - getValue()) > 1.0e-9)
+        setValue (snapped, sendNotificationSync);
 }
 
 void VirusKnob::mouseUp (const MouseEvent&)
@@ -188,9 +211,12 @@ void VirusKnob::mouseWheelMove (const MouseEvent& e, const MouseWheelDetails& wh
     if (std::abs (dir) < 1.0e-6f)
         return;
 
-    const double step = e.mods.isShiftDown() ? 1.0 : 4.0;
-    const double amount = jlimit (-1.0, 1.0, (double) dir * 8.0) * step;
-    setValueWithGesture (getValue() + amount);
+    // One notch = 1.0, or 0.1 with Shift (from the current value, snapped to that step).
+    const bool shift = e.mods.isShiftDown();
+    const double step = shift ? 0.1 : 1.0;
+    const double current = shift ? std::round (getValue() * 10.0) / 10.0 : std::round (getValue());
+    const double target = current + (dir > 0.0f ? step : -step);
+    setValueWithGesture (jlimit (getMinimum(), getMaximum(), shift ? std::round (target * 10.0) / 10.0 : std::round (target)));
 }
 
 void VirusKnob::mouseEnter (const MouseEvent&) { hovering = true;  repaint(); }
@@ -204,7 +230,7 @@ KnobAttachment::KnobAttachment (RangedAudioParameter& p, VirusKnob& k)
       attachment (p, [this] (float v) { knob.setValue (v, dontSendNotification); knob.repaint(); })
 {
     const auto range = p.getNormalisableRange();
-    knob.setRange (range.start, range.end, 0.0);
+    knob.setNormalisableRange ({ (double) range.start, (double) range.end, 0.0, (double) range.skew });
     knob.setDefaultValue (p.convertFrom0to1 (p.getDefaultValue()));
 
     knob.onGestureBegin = [this] { attachment.beginGesture(); };
