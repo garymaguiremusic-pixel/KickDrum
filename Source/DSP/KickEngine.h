@@ -10,7 +10,7 @@ namespace kd
     struct BandSettings
     {
         double attack = 0.0, hold = 0.3, decay = 0.6;    // seconds (decay already resolved for Sync)
-        float curve = 0.5f;                              // 0 = linear decay .. 1 = steep exponential-like
+        float curve = 0.4f;                              // -1 = slow start, 0 = linear, +1 = steep exponential
         float gain = 1.0f;                               // linear
         bool enabled = true;                             // after mute / solo
 
@@ -33,6 +33,10 @@ namespace kd
         TailSettings tail;
         float velocitySensitivity = 0.5f;   // 0..1
     };
+
+    /** The decay shape: x goes 0 -> 1 over the decay, the result 1 -> 0. Always lands softly on 0.
+        curve > 0: exponential (fast drop, long gentle tail), curve < 0: slow start, 0: linear. */
+    float decayShape (double x, float curve) noexcept;
 
     /** Gain of a band's Attack / Hold / Decay envelope at 't' seconds after the hit. */
     float envelopeAt (const BandSettings&, double t) noexcept;

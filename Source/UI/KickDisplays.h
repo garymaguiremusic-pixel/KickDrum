@@ -3,6 +3,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "../DSP/KickBank.h"
 #include "../DSP/KickEngine.h"
+#include "../DSP/OutputRenderer.h"
 
 namespace kd::ui
 {
@@ -133,6 +134,55 @@ namespace kd::ui
         State state;
         double playhead = -1.0;
         bool dragHover = false;
+    };
+
+    //==============================================================================
+    /**
+        The instrument's output for one hit (after every band, the tail, the FX and the
+        volume), on a bar/beat grid at the current tempo. Drawn at the screen's physical
+        resolution: every device pixel gets its own min/max from the full-rate audio.
+    */
+    class OutputView : public juce::Component,
+                       public juce::SettableTooltipClient
+    {
+    public:
+        OutputView();
+
+        std::function<void()> onAudition;
+
+        void setHit (std::shared_ptr<const RenderedHit>);
+        void setTiming (double bpm, double viewBeats);
+        void setPlayhead (double seconds);
+        void paint (juce::Graphics&) override;
+        void mouseDown (const juce::MouseEvent&) override;
+
+    private:
+        void rebuildPeaks (int columns);
+
+        std::shared_ptr<const RenderedHit> hit;
+        double bpm = 120.0, viewBeats = 4.0, playhead = -1.0;
+        std::vector<float> peakMin, peakMax;   // one entry per physical pixel column
+        int peaksFor = -1;
+        const RenderedHit* peaksHit = nullptr;
+        double peaksSpan = 0.0;
+    };
+
+    //==============================================================================
+    /** A frequency you can type in (e.g. "120", "1.5k", "10 kHz"), bound to a parameter. */
+    class FrequencyField : public juce::Label
+    {
+    public:
+        explicit FrequencyField (juce::RangedAudioParameter&);
+
+        void paint (juce::Graphics&) override;
+
+    private:
+        void textWasEdited() override;
+        juce::TextEditor* createEditorComponent() override;
+
+        juce::RangedAudioParameter& param;
+        juce::ParameterAttachment attachment;
+        float value = 0.0f;
     };
 
     //==============================================================================

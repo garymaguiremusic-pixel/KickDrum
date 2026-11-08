@@ -18,7 +18,7 @@ static int writeSnapshot (const juce::File& file, int width, int preset, int bro
     std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
     if (width > 0)
         editor->setSize (width, juce::roundToInt (width * (double) editor->getHeight() / editor->getWidth()));
-    juce::MessageManager::getInstance()->runDispatchLoopUntil (200);
+    juce::MessageManager::getInstance()->runDispatchLoopUntil (1500);
 
     const auto image = editor->createComponentSnapshot (editor->getLocalBounds(), true, 1.0f);
     file.deleteFile();

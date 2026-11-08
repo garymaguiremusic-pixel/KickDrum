@@ -547,6 +547,229 @@ namespace kd::ui
     }
 
     //==============================================================================
+    OutputView::OutputView()
+    {
+        setTooltip ("The instrument's output for one hit, after the bands, tail, FX and volume, on a bar/beat grid "
+                    "at the current tempo. It updates as you edit. Click to play the kick");
+        setMouseCursor (MouseCursor::PointingHandCursor);
+    }
+
+    void OutputView::setHit (std::shared_ptr<const RenderedHit> h)
+    {
+        hit = std::move (h);
+        repaint();
+    }
+
+    void OutputView::setTiming (double newBpm, double beats)
+    {
+        if (std::abs (newBpm - bpm) > 1.0e-3 || std::abs (beats - viewBeats) > 1.0e-6)
+        {
+            bpm = newBpm;
+            viewBeats = beats;
+            repaint();
+        }
+    }
+
+    void OutputView::setPlayhead (double seconds)
+    {
+        if (std::abs (seconds - playhead) > 1.0e-4)
+        {
+            playhead = seconds;
+            repaint();
+        }
+    }
+
+    void OutputView::mouseDown (const MouseEvent& e)
+    {
+        if (! e.mods.isPopupMenu() && onAudition)
+            onAudition();
+    }
+
+    void OutputView::rebuildPeaks (int columns)
+    {
+        const double span = viewBeats * 60.0 / jmax (1.0, bpm);
+        peaksFor = columns;
+        peaksHit = hit.get();
+        peaksSpan = span;
+        peakMin.assign ((size_t) columns, 0.0f);
+        peakMax.assign ((size_t) columns, 0.0f);
+        if (hit == nullptr)
+            return;
+
+        const auto& audio = hit->audio;
+        const int len = audio.getNumSamples();
+        const double samplesPerColumn = span * hit->sampleRate / columns;
+
+        for (int c = 0; c < columns; ++c)
+        {
+            const int s0 = (int) (c * samplesPerColumn);
+            const int s1 = jmax (s0 + 1, (int) ((c + 1) * samplesPerColumn));
+            if (s0 >= len)
+                break;
+
+            float lo = 0.0f, hi = 0.0f;
+            for (int ch = 0; ch < audio.getNumChannels(); ++ch)
+            {
+                const float* d = audio.getReadPointer (ch);
+                for (int i = s0; i < jmin (s1, len); ++i)
+                {
+                    lo = jmin (lo, d[i]);
+                    hi = jmax (hi, d[i]);
+                }
+            }
+            peakMin[(size_t) c] = lo;
+            peakMax[(size_t) c] = hi;
+        }
+    }
+
+    void OutputView::paint (Graphics& g)
+    {
+        auto b = getLocalBounds().toFloat().reduced (1.0f);
+        drawScreen (g, b, false);
+
+        auto inner = b.reduced (6.0f, 4.0f);
+        auto header = inner.removeFromTop (14.0f);
+        auto footer = inner.removeFromBottom (12.0f);
+        const double beatSeconds = 60.0 / jmax (1.0, bpm);
+        const double span = viewBeats * beatSeconds;
+        auto xForT = [&] (double t) { return inner.getX() + (float) (t / span) * inner.getWidth(); };
+
+        // grid: 16ths, beats and bars, with bar.beat labels
+        const float sixteenthPx = inner.getWidth() / (float) (viewBeats * 4.0);
+        g.setFont (CustomLookAndFeel::uiFont (9.5f, true));
+        for (int s = 1; s < roundToInt (viewBeats * 4.0); ++s)
+        {
+            const float x = xForT (s * beatSeconds * 0.25);
+            const bool bar = s % 16 == 0, beat = s % 4 == 0;
+            if (! beat && sixteenthPx < 5.0f)
+                continue;
+            g.setColour (Colours::white.withAlpha (bar ? 0.45f : (beat ? 0.22f : 0.08f)));
+            g.drawVerticalLine (roundToInt (x), inner.getY(), inner.getBottom());
+        }
+        for (int beat = 0; beat <= roundToInt (viewBeats); ++beat)
+        {
+            const float x = xForT (beat * beatSeconds);
+            const String label = beat % 4 == 0 ? String (beat / 4 + 1) : String (beat / 4 + 1) + "." + String (beat % 4 + 1);
+            g.setColour (Colours::white.withAlpha (beat % 4 == 0 ? 0.9f : 0.6f));
+            g.drawText (label, Rectangle<float> (x + 2.0f, footer.getY(), 30.0f, footer.getHeight()), Justification::centredLeft);
+        }
+
+        // 0 dBFS lines and the centre line
+        const float mid = inner.getCentreY(), halfH = inner.getHeight() * 0.5f;
+        g.setColour (Colours::white.withAlpha (0.12f));
+        g.drawHorizontalLine (roundToInt (mid), inner.getX(), inner.getRight());
+        g.setColour (Colours::white.withAlpha (0.06f));
+        g.drawHorizontalLine (roundToInt (inner.getY()), inner.getX(), inner.getRight());
+        g.drawHorizontalLine (roundToInt (inner.getBottom()), inner.getX(), inner.getRight());
+
+        if (hit == nullptr)
+        {
+            drawScreenText (g, "RENDERING...", inner, Justification::centred, 12.0f);
+            drawScreenText (g, "OUTPUT", header, Justification::centredLeft, 10.5f);
+            return;
+        }
+
+        // one column per physical pixel
+        const float scale = jmax (1.0f, g.getInternalContext().getPhysicalPixelScaleFactor());
+        const int columns = jmax (1, roundToInt (inner.getWidth() * scale));
+        if (columns != peaksFor || hit.get() != peaksHit || std::abs (span - peaksSpan) > 1.0e-9)
+            rebuildPeaks (columns);
+
+        RectangleList<float> wave, clipped;
+        const float colW = inner.getWidth() / (float) columns;
+        for (int c = 0; c < columns; ++c)
+        {
+            const float lo = peakMin[(size_t) c], hi = peakMax[(size_t) c];
+            const float top = mid - jmin (1.0f, hi) * halfH;
+            const float bottom = mid - jmax (-1.0f, lo) * halfH;
+            const Rectangle<float> r (inner.getX() + c * colW, top, colW, jmax (1.0f / scale, bottom - top));
+            (hi > 1.0f || lo < -1.0f ? clipped : wave).addWithoutMerging (r);
+        }
+        g.setColour (Colours::white.withAlpha (0.95f));
+        g.fillRectList (wave);
+        g.setColour (VirusColours::red);
+        g.fillRectList (clipped);
+
+        // where the hit ends (-60 dBFS)
+        if (hit->endSeconds > 0.0 && hit->endSeconds < span)
+        {
+            const float x = xForT (hit->endSeconds);
+            g.setColour (Colour (0xff9fe0ff));
+            for (float y = inner.getY(); y < inner.getBottom(); y += 5.0f)
+                g.fillRect (x - 0.5f, y, 1.0f, 3.0f);
+        }
+
+        if (playhead >= 0.0 && playhead <= span)
+        {
+            g.setColour (VirusColours::red);
+            g.fillRect (xForT (playhead) - 0.75f, inner.getY(), 1.5f, inner.getHeight());
+        }
+
+        const double beats = hit->endSeconds / beatSeconds;
+        drawScreenText (g, "OUTPUT", header, Justification::centredLeft, 10.5f);
+        drawScreenText (g, "LENGTH " + formatMs ((float) (hit->endSeconds * 1000.0)) + "  =  " + String (beats, 2)
+                               + (std::abs (beats - 1.0) < 0.005 ? " beat" : " beats")
+                               + "  (" + String (beats * 4.0, 1) + " x 1/16)"
+                               + "      PEAK " + formatDb (Decibels::gainToDecibels (hit->peak, -60.0f))
+                               + "      " + String (bpm, 1) + " BPM",
+                        header, Justification::centredRight, 10.5f,
+                        hit->peak > 1.0f ? Colour (0xffffb0a8) : Colours::white);
+    }
+
+    //==============================================================================
+    FrequencyField::FrequencyField (RangedAudioParameter& p)
+        : param (p),
+          attachment (p, [this] (float v) { value = v; setText (formatHz (v), dontSendNotification); repaint(); })
+    {
+        setEditable (true, true, false);
+        setJustificationType (Justification::centred);
+        setFont (CustomLookAndFeel::uiFont (12.0f, true));
+        setColour (Label::textColourId, Colours::white);
+        setColour (Label::textWhenEditingColourId, Colours::white);
+        setColour (Label::backgroundWhenEditingColourId, VirusColours::lcdBottom);
+        setColour (Label::outlineWhenEditingColourId, VirusColours::blue);
+        setTooltip ("Click and type a crossover frequency, e.g. 120, 1.5k or 10 kHz. Enter to apply");
+        setMouseCursor (MouseCursor::IBeamCursor);
+        attachment.sendInitialUpdate();
+    }
+
+    TextEditor* FrequencyField::createEditorComponent()
+    {
+        auto* ed = Label::createEditorComponent();
+        ed->setJustification (Justification::centred);
+        ed->setColour (TextEditor::highlightColourId, VirusColours::blueGlow.withAlpha (0.6f));
+        ed->setColour (CaretComponent::caretColourId, Colours::white);
+        ed->setInputRestrictions (12, "0123456789.,kKhHzZ ");
+        ed->setText (String (value, value >= 1000.0f ? 0 : 1).trimCharactersAtEnd ("0").trimCharactersAtEnd ("."), false);
+        ed->selectAll();
+        return ed;
+    }
+
+    void FrequencyField::textWasEdited()
+    {
+        auto text = getText().trim().toLowerCase().removeCharacters (" ");
+        const bool kilo = text.containsChar ('k');
+        const double number = text.retainCharacters ("0123456789.,").replaceCharacter (',', '.').getDoubleValue();
+        const double hz = number * (kilo ? 1000.0 : 1.0);
+
+        if (hz > 0.0)
+        {
+            const auto range = param.getNormalisableRange();
+            attachment.setValueAsCompleteGesture (jlimit (range.start, range.end, (float) hz));
+        }
+        setText (formatHz (value), dontSendNotification);   // shows what was actually set (clamped)
+    }
+
+    void FrequencyField::paint (Graphics& g)
+    {
+        if (isBeingEdited())
+            return;
+        auto b = getLocalBounds().toFloat().reduced (1.0f);
+        CustomLookAndFeel::drawLcd (g, b, false);
+        drawScreenText (g, formatHz (value), b, Justification::centred, 12.0f);
+    }
+
+    //==============================================================================
     void SaturationCurve::setState (bool o, int t, float d, float m)
     {
         if (o != on || t != type || d != driveDb || m != mix)

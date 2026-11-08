@@ -36,6 +36,7 @@ set(KICKDRUM_SOURCES
     Source/DSP/KickBank.cpp
     Source/DSP/KickEngine.cpp
     Source/DSP/FxChain.cpp
+    Source/DSP/OutputRenderer.cpp
     Source/Browser/SampleLibrary.cpp
     Source/Browser/FolderScanner.cpp
     Source/UI/BrowserPanel.cpp

@@ -62,6 +62,11 @@ public:
     /** The engine settings as they are now (the editor draws the envelopes from them). */
     kd::EngineSettings makeEngineSettings() const;
     int getTailNote() const;     // the scale-locked tail key
+    kd::SaturationSettings makeSaturationSettings() const;
+    kd::CompressorSettings makeCompressorSettings() const;
+    float getVolumeGain() const;
+    /** The host sample rate (48 kHz before the plugin is prepared). */
+    double getRenderSampleRate() const  { return getSampleRate() > 0.0 ? getSampleRate() : 48000.0; }
 
     double getPlayheadSeconds() const noexcept          { return playhead.load(); }
     float getGainReductionDb() const noexcept           { return fx.getGainReductionDb(); }
@@ -76,8 +81,6 @@ public:
 
 private:
     void timerCallback() override;      // follows the crossover parameters
-    kd::SaturationSettings makeSaturationSettings() const;
-    kd::CompressorSettings makeCompressorSettings() const;
 
     kd::KickBank bank;
     kd::KickEngine engine;

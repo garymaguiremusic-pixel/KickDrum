@@ -47,6 +47,7 @@ namespace kd
         inline constexpr const char* velSens = "velSens";
         inline constexpr const char* volume  = "volume";
         inline constexpr const char* bpm     = "bpm";
+        inline constexpr const char* outView = "outView";   // length shown by the output display
     }
 
     /** Per-band parameter IDs, e.g. band (0, "Attack") -> "b1Attack". */
@@ -73,6 +74,12 @@ namespace kd
     {
         static constexpr double beats[] { 0.25, 0.5, 1.0, 2.0, 4.0 };
         return beats[juce::jlimit (0, 4, index)];
+    }
+    inline juce::StringArray getOutViewNames()    { return { "1/4", "1/2", "1 Bar", "2 Bars" }; }
+    inline double outViewBeats (int index)
+    {
+        static constexpr double beats[] { 1.0, 2.0, 4.0, 8.0 };
+        return beats[juce::jlimit (0, 3, index)];
     }
     inline juce::StringArray getBandNames()       { return { "Sub", "Body", "Click", "Air" }; }
     inline juce::StringArray getSatTypeNames()    { return { "Soft", "Tape", "Tube", "Hard Clip", "Foldback", "Fuzz" }; }
@@ -154,6 +161,14 @@ namespace kd
 
     inline juce::String formatPercent (float v)    { return juce::String (juce::roundToInt (v)) + " %"; }
 
+    /** Decay curve: negative = holds then falls (slow start), 0 = linear, positive = exponential. */
+    inline juce::String formatCurve (float v)
+    {
+        const int n = juce::roundToInt (v);
+        if (n == 0) return "Linear";
+        return (n > 0 ? "Exp " : "Slow ") + juce::String (std::abs (n));
+    }
+
     //==============================================================================
     inline juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     {
@@ -192,7 +207,7 @@ namespace kd
             addFloat (bandParam (b, BandParams::attack), prefix + "Attack", skewedRange (0.0f, 500.0f, 20.0f), 0.0f, formatMs, "ms");
             addFloat (bandParam (b, BandParams::hold),   prefix + "Hold",   skewedRange (0.0f, 2000.0f, 150.0f), 300.0f, formatMs, "ms");
             addFloat (bandParam (b, BandParams::decay),  prefix + "Decay",  skewedRange (5.0f, 4000.0f, 400.0f), 600.0f, formatMs, "ms");
-            addFloat (bandParam (b, BandParams::curve),  prefix + "Curve",  { 0.0f, 100.0f }, 50.0f, formatPercent, "%");
+            addFloat (bandParam (b, BandParams::curve),  prefix + "Curve",  { -100.0f, 100.0f }, 40.0f, formatCurve);
             addFloat (bandParam (b, BandParams::level),  prefix + "Level",  { -60.0f, 12.0f }, 0.0f, formatDb, "dB");
             addChoice (bandParam (b, BandParams::decayMode), prefix + "Decay Mode", { "ms", "Sync" }, 0);
             addChoice (bandParam (b, BandParams::sync),  prefix + "Decay Sync", getSyncNames(), 2);
@@ -237,6 +252,9 @@ namespace kd
         addFloat (ParamIDs::bpm, "Internal Tempo", { 40.0f, 240.0f }, 120.0f,
                   [] (float v) { return String (v, 1) + " BPM"; }, "BPM");
 
+        layout.add (std::make_unique<AudioParameterChoice> (ParameterID { ParamIDs::outView, version }, "Output View",
+                                                            getOutViewNames(), 2,
+                                                            AudioParameterChoiceAttributes().withAutomatable (false)));
         return layout;
     }
 }

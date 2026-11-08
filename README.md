@@ -20,7 +20,8 @@ It appears as an instrument under **VirusDelay Project**. Any MIDI note plays th
 ## Crossover
 
 * Four bands: **Sub** 20-120 Hz, **Body** 120 Hz-1 kHz, **Click** 1-10 kHz, **Air** 10 kHz and up.
-* Drag the three split lines in the crossover display to move them (shift = fine, double-click resets).
+* Drag the three split lines in the crossover display to move them (shift = fine, double-click resets),
+  or click a frequency field under the display and type it (e.g. `120`, `1.5k`, `10 kHz`, Enter to apply).
 * **Slope**: 6, 12, 18, 24 or 36 dB/oct.
 * The split is done with one FFT over the whole sample using real (zero-phase) gain curves, so:
   * there is no phase shift or group delay at all, so the transient isn't smeared between bands;
@@ -38,11 +39,24 @@ Each band has:
   Click to hear that band alone; double-click to open its browser; drop a file on it to give it
   its own sample.
 * **Attack / Hold / Decay / Curve / Level**, plus **M**ute and **S**olo.
+* **Curve** shapes the decay: right of centre is exponential (drops fast, then a long soft tail),
+  centre is linear, left is a slow start (holds its level, then falls). Every setting fades
+  smoothly to silence.
 * **Decay: ms or Sync**. In Sync, the whole band (attack + hold + decay) lasts exactly 1/16, 1/8,
-  1/4, 1/2 or 1 bar at the host tempo (or the internal tempo when there is none).
+  1/4, 1/2 or 1 bar at the host tempo (or the internal tempo when there is none). Attack + Hold use
+  at most 60 % of the note, so even a short 1/8 note always gets a smooth decay instead of a cut.
 * **Mini browser**: the band's sample (MAIN = the main kick, OWN = its own), favourite star,
   previous/next (they load into this band only, with audition), **Browse** (the full browser, for
   this band only) and **Use Main** (back to the main kick).
+
+## Output display
+
+Shows one full-velocity hit as it leaves the instrument (all bands, the tail, the FX and the volume),
+on a bar/beat grid at the current tempo. It is rendered in the background and updates as you edit,
+so you don't need to play a note. **Output view** sets how much it shows (1/4, 1/2, 1 bar or 2 bars),
+and it reads out how long the hit lasts (until it stays below -60 dBFS) in beats, and its peak level.
+The waveform is drawn at the screen's full resolution: every device pixel is computed from the
+full-rate audio, so it stays detailed when the window is enlarged. Click it to play the kick.
 
 ## Tail (tuned extension)
 

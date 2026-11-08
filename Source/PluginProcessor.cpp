@@ -139,9 +139,18 @@ EngineSettings KickDrumAudioProcessor::makeEngineSettings() const
 
         if (idx (p.decayMode) == 1)
         {
-            // Sync: the whole band (attack + hold + decay) lasts exactly the note length
+            // Sync: the whole band (attack + hold + decay) lasts exactly the note length. Attack and
+            // Hold get at most 60 % of it, so the decay always has room to fade out smoothly
+            // (instead of a hard cut when the Hold is longer than a short note).
             const double total = syncBeats (idx (p.sync)) * beatSeconds;
-            b.decay = jmax (0.005, total - b.attack - b.hold);
+            const double maxAttackHold = total * 0.6;
+            if (b.attack + b.hold > maxAttackHold)
+            {
+                const double scale = maxAttackHold / (b.attack + b.hold);
+                b.attack *= scale;
+                b.hold *= scale;
+            }
+            b.decay = total - b.attack - b.hold;
         }
         else
         {
@@ -175,6 +184,12 @@ SaturationSettings KickDrumAudioProcessor::makeSaturationSettings() const
     s.mix = val (params->satMix) * 0.01f;
     s.levelDb = val (params->satLevel);
     return s;
+}
+
+float KickDrumAudioProcessor::getVolumeGain() const
+{
+    const float db = val (params->volume);
+    return db <= -59.9f ? 0.0f : Decibels::decibelsToGain (db);
 }
 
 CompressorSettings KickDrumAudioProcessor::makeCompressorSettings() const
@@ -316,7 +331,7 @@ void KickDrumAudioProcessor::setCurrentProgram (int index)
     currentProgram = index;
     for (auto* p : getParameters())
         if (auto* rp = dynamic_cast<RangedAudioParameter*> (p))
-            if (rp->getParameterID() != ParamIDs::bpm)
+            if (rp->getParameterID() != ParamIDs::bpm && rp->getParameterID() != ParamIDs::outView)
                 rp->setValueNotifyingHost (rp->getDefaultValue());
 
     for (auto& [id, value] : presets[(size_t) index].values)

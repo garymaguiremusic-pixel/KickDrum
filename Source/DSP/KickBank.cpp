@@ -347,6 +347,7 @@ namespace kd
 
             set->preview = req.preview;
             set->id = nextSetId++;
+            info.set = std::make_shared<KickSet> (*set);
             publish (std::move (set));
             builtGeneration = req.generation;
 

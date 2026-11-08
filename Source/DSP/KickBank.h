@@ -73,6 +73,7 @@ namespace kd
             std::array<std::shared_ptr<const Overview>, kNumBands> bandOverviews;
             std::shared_ptr<const Overview> globalOverview;
             dsp::PitchResult pitch;
+            std::shared_ptr<const KickSet> set;              // a copy of what the audio thread plays (for offline renders)
             bool loading = false;
             juce::uint32 generation = 0;
         };

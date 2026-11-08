@@ -18,7 +18,7 @@ class KickDrumAudioProcessorEditor : public juce::AudioProcessorEditor,
                                      private juce::Timer
 {
 public:
-    static constexpr int kBaseWidth = 1100, kBaseHeight = 760;
+    static constexpr int kBaseWidth = 1100, kBaseHeight = 890;
 
     explicit KickDrumAudioProcessorEditor (KickDrumAudioProcessor&);
     ~KickDrumAudioProcessorEditor() override;
@@ -83,6 +83,15 @@ private:
         kd::ui::MainWaveform mainWave;
         kd::ui::CrossoverDisplay crossover;
         SegmentedButtons slopeButtons;
+        std::array<std::unique_ptr<kd::ui::FrequencyField>, 3> xoverFields;
+
+        // Output (one hit through the whole instrument, rendered offline)
+        kd::ui::OutputView outputView;
+        SegmentedButtons outViewButtons;
+        LcdDisplay outLengthLcd, outPeakLcd;
+        kd::OutputRenderer renderer;
+        juce::int64 lastRenderKey = 0;
+        void requestRenderIfNeeded (const kd::KickBank::DisplayInfo&);
 
         // Bands
         std::array<std::unique_ptr<BandControls>, kd::kNumBands> bands;

@@ -4,6 +4,7 @@
 #include "DSP/KickBank.h"
 #include "DSP/KickEngine.h"
 #include "DSP/FxChain.h"
+#include "DSP/OutputRenderer.h"
 #include <juce_audio_formats/juce_audio_formats.h>
 #include "PluginProcessor.h"
 
@@ -208,6 +209,25 @@ public:
             expectWithinAbsoluteError (envelopeAt (s, 0.08), 0.5f, 1.0e-4f);
             expectEquals (envelopeAt (s, 0.2), 0.0f);
         }
+
+        beginTest ("Decay curves start at 1, end softly at 0 and never jump");
+        for (float curve : { -1.0f, -0.5f, 0.0f, 0.4f, 1.0f })
+        {
+            expectWithinAbsoluteError (decayShape (0.0, curve), 1.0f, 1.0e-6f);
+            expectWithinAbsoluteError (decayShape (1.0, curve), 0.0f, 1.0e-6f);
+            float prev = 1.0f, maxStep = 0.0f;
+            for (int i = 1; i <= 1000; ++i)
+            {
+                const float v = decayShape (i / 1000.0, curve);
+                expectLessOrEqual (v, prev + 1.0e-6f);
+                maxStep = jmax (maxStep, prev - v);
+                prev = v;
+            }
+            expectLessThan (maxStep, 0.01f, "curve " + String (curve) + " drops too suddenly");
+        }
+        // positive = exponential: already well down at the half-way point; negative = still high
+        expectLessThan (decayShape (0.5, 1.0f), 0.05f);
+        expectGreaterThan (decayShape (0.5, -1.0f), 0.95f);
 
         beginTest ("With open envelopes the four bands play back the original kick");
         {
@@ -449,6 +469,52 @@ public:
             expectWithinAbsoluteError (info.pitch.hz, 55.0, 1.0);
             expect (info.bandOverviews[0] != nullptr && info.bandOverviews[0]->peak > 0.5f);
             expect (info.bandOverviews[3] != nullptr && info.bandOverviews[3]->peak < 0.05f);   // a sine has no air
+        }
+
+        beginTest ("Sync leaves room for the decay when Hold is longer than the note");
+        {
+            KickDrumAudioProcessor p;
+            auto set = [&p] (const String& id, float v) { auto* q = p.apvts.getParameter (id); q->setValueNotifyingHost (q->convertTo0to1 (v)); };
+            set (bandParam (0, BandParams::hold), 300.0f);
+            set (bandParam (0, BandParams::decayMode), 1.0f);
+            set (bandParam (0, BandParams::sync), 1.0f);      // 1/8 at 120 BPM = 250 ms
+            const auto es = p.makeEngineSettings();
+            const auto& b = es.bands[0];
+            expectWithinAbsoluteError (b.length(), 0.25, 1.0e-6);
+            expectGreaterOrEqual (b.decay, 0.25 * 0.4 - 1.0e-9);
+        }
+
+        beginTest ("The output render matches the instrument and finds where the hit ends");
+        {
+            KickDrumAudioProcessor p;
+            p.getBank().waitUntilIdle (5000);
+            MessageManager::getInstance()->runDispatchLoopUntil (100);
+            const auto info = p.getBank().getDisplayInfo();
+            expect (info.set != nullptr);
+
+            OutputRenderer::Request r;
+            r.set = info.set;
+            r.engine = p.makeEngineSettings();
+            r.saturation = p.makeSaturationSettings();
+            r.compressor = p.makeCompressorSettings();
+            r.volume = p.getVolumeGain();
+            r.sampleRate = 48000.0;
+            r.seconds = 2.0;
+            const auto hit = OutputRenderer::render (r);
+            expectEquals (hit->audio.getNumSamples(), 96000);
+            expectGreaterThan (hit->peak, 0.3f);
+            // the default envelopes end at 0.9 s, so the hit is over before 0.95 s
+            expectGreaterThan (hit->endSeconds, 0.3);
+            expectLessThan (hit->endSeconds, 0.95);
+
+            // saturation on: the rendered hit starts at time 0 even with the oversampling latency
+            r.saturation.on = true;
+            r.saturation.mix = 0.0f;
+            const auto delayed = OutputRenderer::render (r);
+            float diff = 0.0f;
+            for (int i = 0; i < 48000; ++i)
+                diff = jmax (diff, std::abs (delayed->audio.getSample (0, i) - hit->audio.getSample (0, i)));
+            expectLessThan (diff, 1.0e-4f);
         }
 
         beginTest ("Every factory preset loads");

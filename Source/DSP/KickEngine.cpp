@@ -18,8 +18,20 @@ namespace kd
         if (t >= s.decay || s.decay <= 0.0)
             return 0.0f;
 
-        const double x = 1.0 - t / s.decay;             // 1 -> 0
-        return (float) std::pow (x, 1.0 + 4.0 * (double) s.curve);
+        return decayShape (t / s.decay, s.curve);
+    }
+
+    float decayShape (double x, float curve) noexcept
+    {
+        x = jlimit (0.0, 1.0, x);
+        const double k = 9.0 * std::abs ((double) jlimit (-1.0f, 1.0f, curve));
+        if (k < 1.0e-3)
+            return (float) (1.0 - x);
+
+        // a true exponential, rescaled so it starts at 1 and ends exactly at 0
+        const double floor = std::exp (-k);
+        auto expo = [k, floor] (double u) { return (std::exp (-k * u) - floor) / (1.0 - floor); };
+        return (float) (curve > 0.0f ? expo (x) : 1.0 - expo (1.0 - x));
     }
 
     double tuneRatio (const TailSettings& tail, const dsp::PitchResult& pitch) noexcept

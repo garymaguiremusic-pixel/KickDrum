@@ -85,6 +85,8 @@ KickDrumAudioProcessorEditor::Content::Content (KickDrumAudioProcessor& p)
                  *p.apvts.getParameter (ParamIDs::xover3), *p.apvts.getParameter (ParamIDs::slope)),
       slopeButtons (*p.apvts.getParameter (ParamIDs::slope), { "6", "12", "18", "24", "36" },
                     "Crossover slope in dB/oct. Gentler slopes ring less; steeper ones keep the bands more separate"),
+      outViewButtons (*p.apvts.getParameter (ParamIDs::outView), getOutViewNames(),
+                      "How much time the output display shows, at the current tempo"),
       tempoField (*p.apvts.getParameter (ParamIDs::bpm)),
       globalBrowser (p.getSampleLibrary(), p.getBrowserState (KickDrumAudioProcessor::kGlobalBrowser),
                      p.getBank().getSupportedWildcard(), nullptr, browserOptions ("Kick Browser  -  loads into every band"))
@@ -142,6 +144,27 @@ KickDrumAudioProcessorEditor::Content::Content (KickDrumAudioProcessor& p)
     addAndMakeVisible (mainWave);
     addAndMakeVisible (crossover);
     addAndMakeVisible (slopeButtons);
+    for (int i = 0; i < 3; ++i)
+    {
+        xoverFields[(size_t) i] = std::make_unique<kd::ui::FrequencyField> (*p.apvts.getParameter ("xover" + String (i + 1)));
+        addAndMakeVisible (*xoverFields[(size_t) i]);
+    }
+
+    // Output display
+    outputView.onAudition = [this] { processor.audition(); };
+    addAndMakeVisible (outputView);
+    addAndMakeVisible (outViewButtons);
+    addAndMakeVisible (outLengthLcd);
+    addAndMakeVisible (outPeakLcd);
+    outLengthLcd.setTooltip ("How long the hit lasts (until it stays below -60 dBFS), in beats at the current tempo");
+    outPeakLcd.setTooltip ("Peak level of one full-velocity hit");
+    renderer.onRendered = [this] (std::shared_ptr<const RenderedHit> hit)
+    {
+        outputView.setHit (hit);
+        const double beatSeconds = 60.0 / jmax (1.0f, processor.getTempo());
+        outLengthLcd.setContent ("LENGTH", String (hit->endSeconds / beatSeconds, 2) + " BEATS");
+        outPeakLcd.setContent ("PEAK", formatDb (Decibels::gainToDecibels (hit->peak, -60.0f)));
+    };
 
     // Bands ---------------------------------------------------------------------------------
     for (int b = 0; b < kNumBands; ++b)
@@ -293,10 +316,12 @@ void KickDrumAudioProcessorEditor::Content::setupBand (BandControls& c)
     addKnob (c.attack, bandParam (b, BandParams::attack), formatMs);
     addKnob (c.hold, bandParam (b, BandParams::hold), formatMs);
     addKnob (c.decay, bandParam (b, BandParams::decay), formatMs);
-    addKnob (c.curve, bandParam (b, BandParams::curve), formatPercent);
+    addKnob (c.curve, bandParam (b, BandParams::curve), formatCurve);
+    c.curve.getProperties().set ("bipolar", true);
     addKnob (c.level, bandParam (b, BandParams::level), formatDb);
     c.decay.inactiveHint = "Decay is synced to the note length (switch to ms to set it here)";
-    c.curve.setTooltip ("Decay curve: 0 = linear, 100 = fast exponential");
+    c.curve.setTooltip ("Decay curve. Right: exponential (drops fast, then a long soft tail). Centre: linear. "
+                       "Left: slow start (holds its level, then falls). Every setting fades smoothly to silence");
 
     addAndMakeVisible (c.modeButtons);
     addCombo (c.syncBox, bandParam (b, BandParams::sync), getSyncNames(),
@@ -369,6 +394,10 @@ void KickDrumAudioProcessorEditor::Content::updateDisplays()
 
     mainWave.setInfo (info);
     mainWave.setPlayhead (playhead, ratio);
+
+    outputView.setTiming (processor.getTempo(), outViewBeats (roundToInt (raw (ParamIDs::outView))));
+    outputView.setPlayhead (playhead);
+    requestRenderIfNeeded (info);
 
     // the crossover as the bands hear it
     kd::dsp::CrossoverSettings xs;
@@ -480,6 +509,31 @@ void KickDrumAudioProcessorEditor::Content::updateDisplays()
     tempoField.setTempo (processor.getTempo(), processor.isTempoFromHost());
 }
 
+void KickDrumAudioProcessorEditor::Content::requestRenderIfNeeded (const KickBank::DisplayInfo& info)
+{
+    // re-render whenever anything that changes the sound (or the view length) changes
+    int64 key = (int64) reinterpret_cast<pointer_sized_int> (info.set.get());
+    for (auto* p : processor.getParameters())
+        key = key * 1000003 + (int64) (p->getValue() * 1.0e6f);
+    key = key * 31 + roundToInt (processor.getTempo() * 100.0f);
+    key = key * 31 + roundToInt (processor.getRenderSampleRate());
+
+    if (key == lastRenderKey || info.set == nullptr)
+        return;
+    lastRenderKey = key;
+
+    OutputRenderer::Request r;
+    r.set = info.set;
+    r.engine = processor.makeEngineSettings();
+    r.saturation = processor.makeSaturationSettings();
+    r.compressor = processor.makeCompressorSettings();
+    r.volume = processor.getVolumeGain();
+    r.sampleRate = processor.getRenderSampleRate();
+    const double beatSeconds = 60.0 / jmax (1.0f, processor.getTempo());
+    r.seconds = outViewBeats (roundToInt (processor.apvts.getRawParameterValue (ParamIDs::outView)->load())) * beatSeconds;
+    renderer.request (r);
+}
+
 //==============================================================================
 void KickDrumAudioProcessorEditor::Content::resized()
 {
@@ -495,13 +549,21 @@ void KickDrumAudioProcessorEditor::Content::resized()
     // Kick + crossover
     mainWave.setBounds (12, 54, 640, 108);
     crossover.setBounds (660, 54, 428, 80);
-    slopeButtons.setBounds (760, 138, 328, 24);
+    for (int i = 0; i < 3; ++i)
+        xoverFields[(size_t) i]->setBounds (660 + i * 74, 138, 70, 24);
+    slopeButtons.setBounds (884, 138, 204, 24);
+
+    // Output
+    outputView.setBounds (12, 170, 900, 122);
+    outViewButtons.setBounds (920, 188, 168, 24);
+    outLengthLcd.setBounds (920, 218, 168, 26);
+    outPeakLcd.setBounds (920, 250, 168, 26);
 
     // Bands
     for (int b = 0; b < kNumBands; ++b)
     {
         auto& c = *bands[(size_t) b];
-        const int x = 12 + b * 271, y = 170;
+        const int x = 12 + b * 271, y = 300;
         c.panel = { (float) x, (float) y, 263.0f, 314.0f };
 
         c.view.setBounds (x + 8, y + 24, 247, 98);
@@ -523,13 +585,13 @@ void KickDrumAudioProcessorEditor::Content::resized()
     }
 
     // Bottom row
-    tailPanel   = { 12.0f, 492.0f, 300.0f, 256.0f };
-    satPanel    = { 320.0f, 492.0f, 300.0f, 256.0f };
-    compPanel   = { 628.0f, 492.0f, 300.0f, 256.0f };
-    masterPanel = { 936.0f, 492.0f, 152.0f, 256.0f };
+    tailPanel   = { 12.0f, 622.0f, 300.0f, 256.0f };
+    satPanel    = { 320.0f, 622.0f, 300.0f, 256.0f };
+    compPanel   = { 628.0f, 622.0f, 300.0f, 256.0f };
+    masterPanel = { 936.0f, 622.0f, 152.0f, 256.0f };
 
     {
-        const int x = 12, y = 492;
+        const int x = 12, y = 622;
         tailOnButton.setBounds (x + 10, y + 28, 84, 26);
         tuneBodyButton.setBounds (x + 100, y + 28, 92, 26);
         matchButton.setBounds (x + 198, y + 28, 92, 26);
@@ -543,7 +605,7 @@ void KickDrumAudioProcessorEditor::Content::resized()
         tailLevelKnob.setBounds (x + 232, y + 168, 60, 72);
     }
     {
-        const int x = 320, y = 492;
+        const int x = 320, y = 622;
         satOnButton.setBounds (x + 10, y + 28, 60, 26);
         satTypeBox.setBounds (x + 76, y + 29, 214, 24);
         driveKnob.setBounds (x + 14, y + 66, 84, 84);
@@ -554,7 +616,7 @@ void KickDrumAudioProcessorEditor::Content::resized()
         satLevelKnob.setBounds (x + 232, y + 168, 60, 72);
     }
     {
-        const int x = 628, y = 492;
+        const int x = 628, y = 622;
         compOnButton.setBounds (x + 10, y + 28, 60, 26);
         grMeter.setBounds (x + 76, y + 29, 214, 24);
         threshKnob.setBounds (x + 14, y + 66, 84, 84);
@@ -566,7 +628,7 @@ void KickDrumAudioProcessorEditor::Content::resized()
         compMixKnob.setBounds (x + 202, y + 168, 60, 72);
     }
     {
-        const int x = 936, y = 492;
+        const int x = 936, y = 622;
         volumeKnob.setBounds (x + 34, y + 28, 84, 84);
         volumeLcd.setBounds (x + 10, y + 118, 132, 26);
         velKnob.setBounds (x + 46, y + 148, 60, 70);
@@ -588,7 +650,7 @@ void KickDrumAudioProcessorEditor::Content::paint (Graphics& g)
     drawWordmark (g, { 18.0f, 4.0f, 300.0f, 42.0f });
 
     CustomLookAndFeel::drawSmallLabel (g, "Preset", { 400.0f, 10.0f, 64.0f, 28.0f }, Justification::centredRight);
-    CustomLookAndFeel::drawSmallLabel (g, "Slope dB/oct", { 660.0f, 138.0f, 96.0f, 24.0f }, Justification::centredLeft);
+    CustomLookAndFeel::drawSmallLabel (g, "Output view", { 920.0f, 170.0f, 168.0f, 16.0f }, Justification::centredLeft);
 
     const auto names = getBandNames();
     for (int b = 0; b < kNumBands; ++b)
