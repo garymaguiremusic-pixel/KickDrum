@@ -62,6 +62,10 @@ public:
     /** The engine settings as they are now (the editor draws the envelopes from them). */
     kd::EngineSettings makeEngineSettings() const;
     int getTailNote() const;     // the scale-locked tail key
+    /** Key Lock: the key a MIDI note plays in (its scale note in the octave nearest the Key knob). */
+    int keyLockedNote (int midiNote) const;
+    /** The key of the last note played with Key Lock on, or -1. */
+    int getLastLockedNote() const noexcept              { return lockedNote.load(); }
     kd::SaturationSettings makeSaturationSettings() const;
     kd::CompressorSettings makeCompressorSettings() const;
     float getVolumeGain() const;
@@ -90,6 +94,7 @@ private:
     std::unique_ptr<ParamPointers> params;    // cached raw parameter values (no lookups on the audio thread)
 
     std::atomic<int> auditionRequest { -1 };
+    std::atomic<int> lockedNote { -1 };
     juce::uint32 lastSetId = 0;
     std::atomic<double> playhead { -1.0 };
     std::atomic<float> outputPeak { 0.0f };

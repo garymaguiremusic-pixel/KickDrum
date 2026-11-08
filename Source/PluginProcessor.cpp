@@ -25,6 +25,8 @@ struct KickDrumAudioProcessor::ParamPointers
         {
             auto& band = bands[(size_t) b];
             band.attack    = get (bandParam (b, BandParams::attack));
+            band.attackMode = get (bandParam (b, BandParams::attackMode));
+            band.attackSync = get (bandParam (b, BandParams::attackSync));
             band.length    = get (bandParam (b, BandParams::length));
             band.decay     = get (bandParam (b, BandParams::decay));
             band.curve     = get (bandParam (b, BandParams::curve));
@@ -36,6 +38,7 @@ struct KickDrumAudioProcessor::ParamPointers
         }
 
         tailOn = get (ParamIDs::tailOn);       tailKey = get (ParamIDs::tailKey);
+        keyLock = get (ParamIDs::keyLock);
         tailRoot = get (ParamIDs::tailRoot);   tailScale = get (ParamIDs::tailScale);
         tailStart = get (ParamIDs::tailStart); tailGlide = get (ParamIDs::tailGlide);
         tailLevel = get (ParamIDs::tailLevel); tuneBody = get (ParamIDs::tuneBody);
@@ -56,12 +59,13 @@ struct KickDrumAudioProcessor::ParamPointers
 
     struct Band
     {
-        std::atomic<float>* attack, *length, *decay, *curve, *level, *decayMode, *sync, *mute, *solo;
+        std::atomic<float>* attack, *attackMode, *attackSync, *length, *decay, *curve, *level, *decayMode, *sync, *mute, *solo;
     };
 
     std::array<std::atomic<float>*, 3> xover {};
     std::atomic<float>* slope;
     std::array<Band, kNumBands> bands {};
+    std::atomic<float>* keyLock;
     std::atomic<float>* tailOn, *tailKey, *tailRoot, *tailScale, *tailStart, *tailGlide, *tailLevel, *tuneBody;
     std::atomic<float>* satOn, *satType, *satDrive, *satTone, *satMix, *satLevel;
     std::atomic<float>* compOn, *compThresh, *compRatio, *compAttack, *compRelease, *compMakeup, *compMix;
@@ -131,7 +135,8 @@ EngineSettings KickDrumAudioProcessor::makeEngineSettings() const
     {
         const auto& p = params->bands[(size_t) i];
         auto& b = s.bands[(size_t) i];
-        b.attack = val (p.attack) * 0.001;
+        b.attack = idx (p.attackMode) == 1 ? attackSyncBeats (idx (p.attackSync)) * beatSeconds
+                                           : val (p.attack) * 0.001;
         b.curve = val (p.curve) * 0.01f;
         b.gain = val (p.level) <= -59.9f ? 0.0f : Decibels::decibelsToGain (val (p.level));
         b.enabled = anySolo ? on (p.solo) : ! on (p.mute);
@@ -153,6 +158,17 @@ EngineSettings KickDrumAudioProcessor::makeEngineSettings() const
     s.tail.tuneBody = on (params->tuneBody);
     s.velocitySensitivity = val (params->velSens) * 0.01f;
     return s;
+}
+
+int KickDrumAudioProcessor::keyLockedNote (int midiNote) const
+{
+    // the played note, snapped to the scale, in the octave nearest the Key knob
+    const int knob = getTailNote();
+    const int root = idx (params->tailRoot), scale = idx (params->tailScale);
+    int note = snapToScale (midiNote, root, scale);
+    while (note - knob > 6)  note -= 12;
+    while (knob - note > 6)  note += 12;   // ties (a tritone away) go up
+    return note;
 }
 
 int KickDrumAudioProcessor::getTailNote() const
@@ -236,7 +252,20 @@ void KickDrumAudioProcessor::processBlock (AudioBuffer<float>& buffer, MidiBuffe
         {
             engine.render (set, settings, buffer, pos, at - pos, bank.getPreviousSet());
             pos = at;
-            engine.trigger (set, settings, msg.getFloatVelocity());
+            if (on (params->keyLock))
+            {
+                // Key Lock: this note's pitch (in the scale) becomes the key of the tail,
+                // and of the body too with Tune Body on
+                const int keyNote = keyLockedNote (msg.getNoteNumber());
+                lockedNote.store (keyNote);
+                auto locked = settings;
+                locked.tail.keyHz = noteToHz (keyNote);
+                engine.trigger (set, locked, msg.getFloatVelocity());
+            }
+            else
+            {
+                engine.trigger (set, settings, msg.getFloatVelocity());
+            }
         }
         else if (msg.isAllNotesOff() || msg.isAllSoundOff())
         {
@@ -320,7 +349,7 @@ void KickDrumAudioProcessor::setCurrentProgram (int index)
     currentProgram = index;
     for (auto* p : getParameters())
         if (auto* rp = dynamic_cast<RangedAudioParameter*> (p))
-            if (rp->getParameterID() != ParamIDs::bpm && rp->getParameterID() != ParamIDs::outView)
+            if (rp->getParameterID() != ParamIDs::bpm)
                 rp->setValueNotifyingHost (rp->getDefaultValue());
 
     for (auto& [id, value] : presets[(size_t) index].values)

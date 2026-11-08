@@ -48,6 +48,8 @@ void KickDrumAudioProcessorEditor::timerCallback()
 KickDrumAudioProcessorEditor::BandControls::BandControls (KickDrumAudioProcessor& p, int b)
     : band (b),
       view (b),
+      attackModeButtons (*p.apvts.getParameter (bandParam (b, BandParams::attackMode)), { "ms", "Sync" },
+                         "Attack in milliseconds, or Sync: the attack lasts a note length (1/64 to 1/4) at the tempo"),
       modeButtons (*p.apvts.getParameter (bandParam (b, BandParams::decayMode)), { "ms", "Sync" },
                    "Length in milliseconds, or Sync: the band lasts exactly a note length at the tempo")
 {
@@ -85,8 +87,6 @@ KickDrumAudioProcessorEditor::Content::Content (KickDrumAudioProcessor& p)
                  *p.apvts.getParameter (ParamIDs::xover3), *p.apvts.getParameter (ParamIDs::slope)),
       slopeButtons (*p.apvts.getParameter (ParamIDs::slope), { "6", "12", "18", "24", "36" },
                     "Crossover slope in dB/oct. Gentler slopes ring less; steeper ones keep the bands more separate"),
-      outViewButtons (*p.apvts.getParameter (ParamIDs::outView), getOutViewNames(),
-                      "How much time the output display shows, at the current tempo"),
       tempoField (*p.apvts.getParameter (ParamIDs::bpm)),
       globalBrowser (p.getSampleLibrary(), p.getBrowserState (KickDrumAudioProcessor::kGlobalBrowser),
                      p.getBank().getSupportedWildcard(), nullptr, browserOptions ("Kick Browser  -  loads into every band"))
@@ -153,7 +153,6 @@ KickDrumAudioProcessorEditor::Content::Content (KickDrumAudioProcessor& p)
     // Output display
     outputView.onAudition = [this] { processor.audition(); };
     addAndMakeVisible (outputView);
-    addAndMakeVisible (outViewButtons);
     addAndMakeVisible (outLengthLcd);
     addAndMakeVisible (outPeakLcd);
     outLengthLcd.setTooltip ("How long the hit lasts (until it stays below -60 dBFS), in beats at the current tempo");
@@ -190,6 +189,10 @@ KickDrumAudioProcessorEditor::Content::Content (KickDrumAudioProcessor& p)
                "set the Sub Length to Sync 1/2 or 1 Bar for a long tail");
     addToggle (tuneBodyButton, ParamIDs::tuneBody,
                "Tune Body: re-pitch the whole kick so its detected pitch lands on the Key (nearest octave)");
+    addToggle (keyLockButton, ParamIDs::keyLock,
+               "Key Lock: every MIDI note sets the key, snapped to the Root / Scale (in the octave nearest the Key knob). "
+               "Play a pattern up and down the scale in your DAW and the tail follows it; with Tune Body on, "
+               "the body is re-pitched to each note too");
     matchButton.setTooltip ("Set the Key to the kick's detected pitch (snapped to the scale)");
     matchButton.onClick = [this] { matchTailKeyToKick(); };
     addAndMakeVisible (matchButton);
@@ -336,6 +339,10 @@ void KickDrumAudioProcessorEditor::Content::setupBand (BandControls& c)
     c.curve.setTooltip ("Decay curve. Right: exponential (drops fast, then a long soft tail). Centre: linear. "
                        "Left: slow start (holds its level, then falls). Every setting fades smoothly to silence");
 
+    addAndMakeVisible (c.attackModeButtons);
+    addCombo (c.attackSyncBox, bandParam (b, BandParams::attackSync), getAttackSyncNames(),
+              "Synced attack time, at the host tempo");
+    c.attack.inactiveHint = "Attack is synced to the note (switch to ms to set it here)";
     addAndMakeVisible (c.modeButtons);
     addCombo (c.syncBox, bandParam (b, BandParams::sync), getSyncNames(),
               "Synced length of the whole band, at the host tempo");
@@ -408,7 +415,7 @@ void KickDrumAudioProcessorEditor::Content::updateDisplays()
     mainWave.setInfo (info);
     mainWave.setPlayhead (playhead, ratio);
 
-    outputView.setTiming (processor.getTempo(), outViewBeats (roundToInt (raw (ParamIDs::outView))));
+    outputView.setTiming (processor.getTempo(), kOutputViewBeats);
     outputView.setPlayhead (playhead);
     requestRenderIfNeeded (info);
 
@@ -460,6 +467,9 @@ void KickDrumAudioProcessorEditor::Content::updateDisplays()
 
         c.length.setEnabled (! synced);
         c.syncBox.setEnabled (synced);
+        const bool attackSynced = roundToInt (raw (bandParam (b, BandParams::attackMode))) == 1;
+        c.attack.setEnabled (! attackSynced);
+        c.attackSyncBox.setEnabled (attackSynced);
 
         // mini browser
         const auto& src = info.bands[(size_t) b];
@@ -488,8 +498,15 @@ void KickDrumAudioProcessorEditor::Content::updateDisplays()
     }
 
     // tail
-    keyLcd.setContent ("KEY", noteName (tailNote));
-    keyLcd.setDimmed (! settings.tail.on);
+    {
+        const bool locked = raw (ParamIDs::keyLock) > 0.5f;
+        const int lastNote = processor.getLastLockedNote();
+        if (locked && lastNote >= 0)
+            keyLcd.setContent ("MIDI", noteName (lastNote));
+        else
+            keyLcd.setContent ("KEY", noteName (tailNote));
+    }
+    keyLcd.setDimmed (! settings.tail.on && ! settings.tail.tuneBody);
     if (info.pitch.isValid())
     {
         const double note = hzToNote (info.pitch.hz);
@@ -543,7 +560,11 @@ void KickDrumAudioProcessorEditor::Content::requestRenderIfNeeded (const KickBan
     r.volume = processor.getVolumeGain();
     r.sampleRate = processor.getRenderSampleRate();
     const double beatSeconds = 60.0 / jmax (1.0f, processor.getTempo());
-    r.seconds = outViewBeats (roundToInt (processor.apvts.getRawParameterValue (ParamIDs::outView)->load())) * beatSeconds;
+    // render the whole hit (so its length can be measured), the display shows the first 1/4 note
+    double longest = 0.0;
+    for (auto& b : r.engine.bands)
+        longest = jmax (longest, b.length());
+    r.seconds = jlimit (kOutputViewBeats * beatSeconds, 8.0, longest + 0.2);
     renderer.request (r);
 }
 
@@ -568,9 +589,8 @@ void KickDrumAudioProcessorEditor::Content::resized()
 
     // Output (bottom row, under the FX)
     outputView.setBounds (12, 756, 900, 122);
-    outViewButtons.setBounds (920, 774, 168, 24);
-    outLengthLcd.setBounds (920, 804, 168, 26);
-    outPeakLcd.setBounds (920, 836, 168, 26);
+    outLengthLcd.setBounds (920, 790, 168, 26);
+    outPeakLcd.setBounds (920, 822, 168, 26);
 
     // Bands
     for (int b = 0; b < kNumBands; ++b)
@@ -591,10 +611,12 @@ void KickDrumAudioProcessorEditor::Content::resized()
         for (int k = 0; k < 5; ++k)
             knobs[k]->setBounds (x + 8 + roundToInt (k * 49.4f), y + 182, 49, 68);
 
-        c.modeButtons.setBounds (x + 8, y + 280, 88, 24);
-        c.syncBox.setBounds (x + 100, y + 280, 75, 24);
-        c.mute.setBounds (x + 181, y + 280, 35, 24);
-        c.solo.setBounds (x + 220, y + 280, 35, 24);
+        c.attackModeButtons.setBounds (x + 60, y + 256, 76, 24);
+        c.attackSyncBox.setBounds (x + 140, y + 256, 74, 24);
+        c.mute.setBounds (x + 220, y + 256, 35, 24);
+        c.modeButtons.setBounds (x + 60, y + 284, 76, 24);
+        c.syncBox.setBounds (x + 140, y + 284, 74, 24);
+        c.solo.setBounds (x + 220, y + 284, 35, 24);
     }
 
     // Bottom row
@@ -605,9 +627,10 @@ void KickDrumAudioProcessorEditor::Content::resized()
 
     {
         const int x = 12, y = 492;
-        tailOnButton.setBounds (x + 10, y + 28, 84, 26);
-        tuneBodyButton.setBounds (x + 100, y + 28, 92, 26);
-        matchButton.setBounds (x + 198, y + 28, 92, 26);
+        tailOnButton.setBounds (x + 10, y + 28, 64, 26);
+        tuneBodyButton.setBounds (x + 78, y + 28, 78, 26);
+        keyLockButton.setBounds (x + 160, y + 28, 72, 26);
+        matchButton.setBounds (x + 236, y + 28, 54, 26);
         keyKnob.setBounds (x + 14, y + 66, 84, 84);
         keyLcd.setBounds (x + 10, y + 156, 94, 26);
         rootBox.setBounds (x + 112, y + 82, 58, 24);
@@ -663,7 +686,7 @@ void KickDrumAudioProcessorEditor::Content::paint (Graphics& g)
     drawWordmark (g, { 18.0f, 4.0f, 300.0f, 42.0f });
 
     CustomLookAndFeel::drawSmallLabel (g, "Preset", { 400.0f, 10.0f, 64.0f, 28.0f }, Justification::centredRight);
-    CustomLookAndFeel::drawSmallLabel (g, "Output view", { 920.0f, 756.0f, 168.0f, 16.0f }, Justification::centredLeft);
+    CustomLookAndFeel::drawSmallLabel (g, "Output  -  1/4 note", { 920.0f, 762.0f, 168.0f, 16.0f }, Justification::centredLeft);
 
     const auto names = getBandNames();
     for (int b = 0; b < kNumBands; ++b)
@@ -675,9 +698,9 @@ void KickDrumAudioProcessorEditor::Content::paint (Graphics& g)
         g.setColour (kd::ui::bandColour (b));
         g.fillRoundedRectangle (c.panel.getX() + 8.0f, c.panel.getY() + 6.0f, 18.0f, 6.0f, 2.0f);
 
-        CustomLookAndFeel::drawSmallLabel (g, "Length", { c.panel.getX() + 8.0f, c.panel.getY() + 262.0f, 88.0f, 14.0f },
+        CustomLookAndFeel::drawSmallLabel (g, "Attack", { c.panel.getX() + 8.0f, c.panel.getY() + 256.0f, 50.0f, 24.0f },
                                            Justification::centredLeft);
-        CustomLookAndFeel::drawSmallLabel (g, "Sync", { c.panel.getX() + 100.0f, c.panel.getY() + 262.0f, 75.0f, 14.0f },
+        CustomLookAndFeel::drawSmallLabel (g, "Length", { c.panel.getX() + 8.0f, c.panel.getY() + 284.0f, 50.0f, 24.0f },
                                            Justification::centredLeft);
     }
 

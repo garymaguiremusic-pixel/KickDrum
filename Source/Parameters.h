@@ -25,6 +25,7 @@ namespace kd
         inline constexpr const char* tailGlide = "tailGlide";
         inline constexpr const char* tailLevel = "tailLevel";
         inline constexpr const char* tuneBody  = "tuneBody";
+        inline constexpr const char* keyLock   = "keyLock";    // MIDI notes set the key (scale-locked)
 
         // Saturation
         inline constexpr const char* satOn    = "satOn";
@@ -47,7 +48,6 @@ namespace kd
         inline constexpr const char* velSens = "velSens";
         inline constexpr const char* volume  = "volume";
         inline constexpr const char* bpm     = "bpm";
-        inline constexpr const char* outView = "outView";   // length shown by the output display
     }
 
     /** Per-band parameter IDs, e.g. band (0, "Attack") -> "b1Attack". */
@@ -56,6 +56,8 @@ namespace kd
     namespace BandParams
     {
         inline constexpr const char* attack    = "Attack";
+        inline constexpr const char* attackMode = "AttackMode"; // 0 = ms, 1 = sync
+        inline constexpr const char* attackSync = "AttackSync";
         inline constexpr const char* length    = "Length";   // whole band: attack + sustain + decay
         inline constexpr const char* decay     = "Decay";
         inline constexpr const char* curve     = "Curve";
@@ -75,11 +77,15 @@ namespace kd
         static constexpr double beats[] { 0.25, 0.5, 1.0, 2.0, 4.0 };
         return beats[juce::jlimit (0, 4, index)];
     }
-    inline juce::StringArray getOutViewNames()    { return { "1/4", "1/2", "1 Bar", "2 Bars" }; }
-    inline double outViewBeats (int index)
+    /** The output display always shows one quarter note. */
+    static constexpr double kOutputViewBeats = 1.0;
+
+    inline juce::StringArray getAttackSyncNames() { return { "1/64", "1/32", "1/16", "1/8", "1/4" }; }
+    /** Length of each attack sync choice in quarter notes. */
+    inline double attackSyncBeats (int index)
     {
-        static constexpr double beats[] { 1.0, 2.0, 4.0, 8.0 };
-        return beats[juce::jlimit (0, 3, index)];
+        static constexpr double beats[] { 0.0625, 0.125, 0.25, 0.5, 1.0 };
+        return beats[juce::jlimit (0, 4, index)];
     }
     inline juce::StringArray getBandNames()       { return { "Sub", "Body", "Click", "Air" }; }
     inline juce::StringArray getSatTypeNames()    { return { "Soft", "Tape", "Tube", "Hard Clip", "Foldback", "Fuzz" }; }
@@ -281,6 +287,8 @@ namespace kd
             addFloat (bandParam (b, BandParams::decay),  prefix + "Decay",  skewedRange (5.0f, 8000.0f, 400.0f), 600.0f, formatMs, "ms");
             addFloat (bandParam (b, BandParams::curve),  prefix + "Curve",  { -100.0f, 100.0f }, 40.0f, formatCurve);
             addFloat (bandParam (b, BandParams::level),  prefix + "Level",  { -60.0f, 12.0f }, 0.0f, formatDb, "dB");
+            addChoice (bandParam (b, BandParams::attackMode), prefix + "Attack Mode", { "ms", "Sync" }, 0);
+            addChoice (bandParam (b, BandParams::attackSync), prefix + "Attack Sync", getAttackSyncNames(), 1);
             addChoice (bandParam (b, BandParams::decayMode), prefix + "Length Mode", { "ms", "Sync" }, 0);
             addChoice (bandParam (b, BandParams::sync),  prefix + "Length Sync", getSyncNames(), 2);
             addBool (bandParam (b, BandParams::mute), prefix + "Mute", false);
@@ -299,6 +307,7 @@ namespace kd
         addFloat (ParamIDs::tailGlide, "Tail Glide", skewedRange (0.0f, 1000.0f, 120.0f), 60.0f, formatMs, "ms");
         addFloat (ParamIDs::tailLevel, "Tail Level", { -24.0f, 12.0f }, 0.0f, formatDb, "dB");
         addBool (ParamIDs::tuneBody, "Tune Body", false);
+        addBool (ParamIDs::keyLock, "Key Lock", false);
 
         // Saturation -----------------------------------------------------------------
         addBool (ParamIDs::satOn, "Saturation On", false);
@@ -324,9 +333,6 @@ namespace kd
         addFloat (ParamIDs::bpm, "Internal Tempo", { 40.0f, 240.0f }, 120.0f,
                   [] (float v) { return String (v, 1) + " BPM"; }, "BPM");
 
-        layout.add (std::make_unique<AudioParameterChoice> (ParameterID { ParamIDs::outView, version }, "Output View",
-                                                            getOutViewNames(), 2,
-                                                            AudioParameterChoiceAttributes().withAutomatable (false)));
         return layout;
     }
 }

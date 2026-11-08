@@ -588,6 +588,56 @@ public:
             expectWithinAbsoluteError (b.decay, 0.24, 1.0e-4);
         }
 
+        beginTest ("Attack can be synced (up to 1/4)");
+        {
+            KickDrumAudioProcessor p;
+            auto set = [&p] (const String& id, float v) { auto* q = p.apvts.getParameter (id); q->setValueNotifyingHost (q->convertTo0to1 (v)); };
+            set (bandParam (1, BandParams::attackMode), 1.0f);
+            set (bandParam (1, BandParams::attackSync), 2.0f);      // 1/16 at 120 BPM = 125 ms
+            expectWithinAbsoluteError (p.makeEngineSettings().bands[1].attack, 0.125, 1.0e-6);
+            set (bandParam (1, BandParams::attackSync), 4.0f);      // 1/4 = 500 ms
+            expectWithinAbsoluteError (p.makeEngineSettings().bands[1].attack, 0.5, 1.0e-6);
+        }
+
+        beginTest ("Key Lock: MIDI notes set the key, in the scale, near the Key knob");
+        {
+            KickDrumAudioProcessor p;
+            auto set = [&p] (const String& id, float v) { auto* q = p.apvts.getParameter (id); q->setValueNotifyingHost (q->convertTo0to1 (v)); };
+            // Key knob A1 (33), A minor
+            expectEquals (p.keyLockedNote (48), 36);    // C  -> C2 (3 above A1)
+            expectEquals (p.keyLockedNote (50), 38);    // D  -> D2
+            expectEquals (p.keyLockedNote (52), 28);    // E  -> E1 (nearer than E2)
+            expectEquals (p.keyLockedNote (49), 36);    // C# isn't in A minor -> C
+            expectEquals (p.keyLockedNote (33 + 24), 33);
+
+            // the tail of a played note sounds at that note
+            set (ParamIDs::keyLock, 1.0f);
+            set (ParamIDs::tailOn, 1.0f);
+            set (bandParam (0, BandParams::length), 2000.0f);
+            set (bandParam (0, BandParams::decay), 300.0f);
+            p.getBank().waitUntilIdle (5000);
+            p.prepareToPlay (48000.0, 512);
+
+            AudioBuffer<float> out (2, 48000 * 2);
+            out.clear();
+            AudioBuffer<float> block (2, 512);
+            for (int pos = 0; pos < out.getNumSamples(); pos += 512)
+            {
+                MidiBuffer midi;
+                if (pos == 0)
+                    midi.addEvent (MidiMessage::noteOn (1, 50, (uint8) 127), 0);    // D -> D2, 73.4 Hz
+                p.processBlock (block, midi);
+                for (int ch = 0; ch < 2; ++ch)
+                    out.copyFrom (ch, pos, block, ch, 0, jmin (512, out.getNumSamples() - pos));
+            }
+            int crossings = 0;
+            for (int i = 48000; i < 72000; ++i)
+                if ((out.getSample (0, i - 1) < 0.0f) != (out.getSample (0, i) < 0.0f))
+                    ++crossings;
+            expectWithinAbsoluteError ((double) crossings / 2.0 / 0.5, noteToHz (38), 2.0);
+            expectEquals (p.getLastLockedNote(), 38);
+        }
+
         beginTest ("Typed knob values are understood");
         {
             expectWithinAbsoluteError (parseValueText ("120", Unit::Ms), 120.0, 1.0e-9);

@@ -44,6 +44,7 @@ Each band has:
 * **Curve** shapes the decay: right of centre is exponential (drops fast, then a long soft tail),
   centre is linear, left is a slow start (holds its level, then falls). Every setting fades
   smoothly to silence.
+* **Attack: ms or Sync**. In Sync, the attack lasts 1/64, 1/32, 1/16, 1/8 or 1/4 at the tempo.
 * **Length: ms or Sync**. In Sync, the band lasts exactly 1/16, 1/8, 1/4, 1/2 or 1 bar at the host
   tempo (or the internal tempo when there is none), and the Decay still fades it out smoothly.
 * **No clicks while editing**: a playing hit glides to new Attack / Length / Decay / Curve settings
@@ -58,12 +59,11 @@ Each band has:
 
 ## Output display
 
-The bottom row shows one full-velocity hit as it leaves the instrument (all bands, the tail, the FX and the volume),
-on a bar/beat grid at the current tempo. It is rendered in the background and updates as you edit,
-so you don't need to play a note. **Output view** sets how much it shows (1/4, 1/2, 1 bar or 2 bars),
-and it reads out how long the hit lasts (until it stays below -60 dBFS) in beats, and its peak level.
-The waveform is drawn at the screen's full resolution: every device pixel is computed from the
-full-rate audio, so it stays detailed when the window is enlarged. Click it to play the kick.
+The bottom row shows one full-velocity hit as it leaves the instrument (all bands, the tail, the FX
+and the volume) over one **1/4 note** at the current tempo, with 16th-note grid lines. It is rendered
+in the background and updates as you edit, so you don't need to play a note. The readouts give the
+whole hit's length (until it stays below -60 dBFS) in beats, even when it lasts longer than the view,
+and its peak level. The waveform is drawn at the screen's full resolution. Click it to play the kick.
 
 ## Tail (tuned extension)
 
@@ -76,6 +76,10 @@ full-rate audio, so it stays detailed when the window is enlarged. Click it to p
   Minor, Dorian, Phrygian, Mixolydian, the pentatonics, Phrygian Dominant).
 * **Match Kick**: sets the Key to the kick's own pitch (snapped to the scale).
 * **Tune Body**: re-pitches the whole kick so it sits in the key (nearest octave, at most 6 semitones).
+* **Key Lock**: every MIDI note sets the key for that hit, snapped to the Root / Scale, in the octave
+  nearest the Key knob. Write a pattern that moves up and down the scale in your DAW (e.g. Cubase) and
+  the tail follows it note by note; with **Tune Body** on as well, the body follows too. The KEY
+  readout shows the last note played (MIDI). Without Key Lock, any note plays the Key knob's key.
 * **Level**: the tail's level relative to the kick.
 
 ## FX

@@ -43,8 +43,8 @@ private:
         VirusKnob decay  { VirusKnob::Size::Small, "Decay" };
         VirusKnob curve  { VirusKnob::Size::Small, "Curve" };
         VirusKnob level  { VirusKnob::Size::Small, "Level" };
-        SegmentedButtons modeButtons;
-        juce::ComboBox syncBox;
+        SegmentedButtons attackModeButtons, modeButtons;
+        juce::ComboBox attackSyncBox, syncBox;
         juce::TextButton mute { "M" }, solo { "S" };
         juce::Rectangle<float> panel;
     };
@@ -88,7 +88,6 @@ private:
 
         // Output (one hit through the whole instrument, rendered offline)
         kd::ui::OutputView outputView;
-        SegmentedButtons outViewButtons;
         LcdDisplay outLengthLcd, outPeakLcd;
         kd::OutputRenderer renderer;
         juce::int64 lastRenderKey = 0;
@@ -98,7 +97,8 @@ private:
         std::array<std::unique_ptr<BandControls>, kd::kNumBands> bands;
 
         // Tail
-        juce::TextButton tailOnButton { "Tail On" }, tuneBodyButton { "Tune Body" }, matchButton { "Match Kick" };
+        juce::TextButton tailOnButton { "Tail On" }, tuneBodyButton { "Tune Body" }, keyLockButton { "Key Lock" },
+                         matchButton { "Match" };
         VirusKnob keyKnob       { VirusKnob::Size::Large, "Key" };
         VirusKnob tailStartKnob { VirusKnob::Size::Small, "Start" };
         VirusKnob glideKnob     { VirusKnob::Size::Small, "Glide" };
