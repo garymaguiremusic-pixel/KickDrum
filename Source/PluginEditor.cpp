@@ -490,6 +490,8 @@ void KickDrumAudioProcessorEditor::Content::setupBand (BandControls& c)
               "Synced length of the whole band, at the host tempo");
     addToggle (c.mute, bandParam (b, BandParams::mute), "Mute the " + name + " band");
     addToggle (c.solo, bandParam (b, BandParams::solo), "Solo the " + name + " band");
+    addToggle (c.phase, bandParam (b, BandParams::phase),
+               "Flip the polarity (phase) of the " + name + " band. It glides over a few milliseconds, so it never clicks");
 }
 
 //==============================================================================
@@ -606,6 +608,7 @@ void KickDrumAudioProcessorEditor::Content::updateDisplays()
         s.lengthText = synced ? getSyncNames()[syncIndex] + "  " + formatMs ((float) (syncBeats (syncIndex) * beatSeconds * 1000.0))
                               : formatMs ((float) (env.length() * 1000.0));
         s.enabled = env.enabled;
+        s.inverted = env.invert;
         c.view.setState (s);
         c.view.setPlayhead (playhead);
 
@@ -791,12 +794,13 @@ void KickDrumAudioProcessorEditor::Content::resized()
         for (int k = 0; k < 6; ++k)
             knobs[k]->setBounds (x + 6 + roundToInt (k * 41.8f), y + 204, 43, 68);
 
-        c.attackModeButtons.setBounds (x + 60, y + 278, 76, 24);
-        c.attackSyncBox.setBounds (x + 140, y + 278, 74, 24);
-        c.mute.setBounds (x + 220, y + 278, 35, 24);
-        c.modeButtons.setBounds (x + 60, y + 306, 76, 24);
-        c.syncBox.setBounds (x + 140, y + 306, 74, 24);
-        c.solo.setBounds (x + 220, y + 306, 35, 24);
+        c.attackModeButtons.setBounds (x + 56, y + 278, 74, 24);
+        c.attackSyncBox.setBounds (x + 133, y + 278, 64, 24);
+        c.mute.setBounds (x + 200, y + 278, 27, 24);
+        c.solo.setBounds (x + 229, y + 278, 26, 24);
+        c.modeButtons.setBounds (x + 56, y + 306, 74, 24);
+        c.syncBox.setBounds (x + 133, y + 306, 64, 24);
+        c.phase.setBounds (x + 200, y + 306, 55, 24);
     }
 
     // Bottom row

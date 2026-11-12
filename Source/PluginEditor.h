@@ -49,7 +49,7 @@ private:
         VirusKnob level  { VirusKnob::Size::Small, "Level" };
         SegmentedButtons attackModeButtons, modeButtons;
         juce::ComboBox attackSyncBox, syncBox;
-        juce::TextButton mute { "M" }, solo { "S" };
+        juce::TextButton mute { "M" }, solo { "S" }, phase { "Phase" };
         juce::Rectangle<float> panel;
     };
 

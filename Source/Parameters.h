@@ -73,6 +73,7 @@ namespace kd
         inline constexpr const char* sync      = "Sync";        // synced Length
         inline constexpr const char* mute      = "Mute";
         inline constexpr const char* solo      = "Solo";
+        inline constexpr const char* phase     = "Phase";     // polarity flip
     }
 
     //==============================================================================
@@ -301,6 +302,7 @@ namespace kd
             addChoice (bandParam (b, BandParams::sync),  prefix + "Length Sync", getSyncNames(), 2);
             addBool (bandParam (b, BandParams::mute), prefix + "Mute", false);
             addBool (bandParam (b, BandParams::solo), prefix + "Solo", false);
+            addBool (bandParam (b, BandParams::phase), prefix + "Phase Invert", false);
         }
 
         // Tail ---------------------------------------------------------------------

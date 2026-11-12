@@ -36,6 +36,7 @@ struct KickDrumAudioProcessor::ParamPointers
             band.sync      = get (bandParam (b, BandParams::sync));
             band.mute      = get (bandParam (b, BandParams::mute));
             band.solo      = get (bandParam (b, BandParams::solo));
+            band.phase     = get (bandParam (b, BandParams::phase));
         }
 
         tailOn = get (ParamIDs::tailOn);       tailKey = get (ParamIDs::tailKey);
@@ -62,7 +63,7 @@ struct KickDrumAudioProcessor::ParamPointers
 
     struct Band
     {
-        std::atomic<float>* attack, *fade, *attackMode, *attackSync, *length, *decay, *curve, *level, *decayMode, *sync, *mute, *solo;
+        std::atomic<float>* attack, *fade, *attackMode, *attackSync, *length, *decay, *curve, *level, *decayMode, *sync, *mute, *solo, *phase;
     };
 
     std::array<std::atomic<float>*, 3> xover {};
@@ -144,6 +145,7 @@ EngineSettings KickDrumAudioProcessor::makeEngineSettings() const
         b.fade = val (p.fade) * 0.001;
         b.gain = val (p.level) <= -59.9f ? 0.0f : Decibels::decibelsToGain (val (p.level));
         b.enabled = anySolo ? on (p.solo) : ! on (p.mute);
+        b.invert = on (p.phase);
 
         // Length (ms, or synced to the note) is the whole band. The Decay is the fade at its
         // end; whatever is left after the Attack holds at full level.

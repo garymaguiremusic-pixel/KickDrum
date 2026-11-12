@@ -41,7 +41,9 @@ Each band has:
   line, the playhead and, on the Sub band, the tuned tail. All four use the same time scale.
   Click to hear that band alone; double-click to open its browser; drop a file on it to give it
   its own sample.
-* **Attack / Length / Decay / Curve / Level**, plus **M**ute and **S**olo. **Length** is how long the
+* **Attack / Length / Decay / Curve / Level**, plus **M**ute, **S**olo and **Phase** (flips the band's
+  polarity; it glides over ~10 ms so switching it while a note plays never clicks, and the band's
+  display is drawn upside down with PHASE INVERTED). **Length** is how long the
   band lasts in total; **Decay** is the fade at its end (it can't be longer than the Length), and the
   band stays at full level in between.
 * **Fade**: a fade-out (0-1000 ms, default 20 ms) that reaches silence exactly at the end of the

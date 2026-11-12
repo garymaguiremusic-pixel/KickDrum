@@ -132,6 +132,7 @@ namespace kd::ui
             juce::String lengthText;        // e.g. "1/4  500 ms"
             juce::String rangeText;         // e.g. "30 - 120 Hz"
             bool enabled = true;
+            bool inverted = false;          // phase flipped: drawn upside down
 
             bool operator== (const State&) const;
         };

@@ -14,6 +14,7 @@ namespace kd
         float gain = 1.0f;                               // linear
         double fade = 0.02;                              // seconds: fade-out before the end of the sample (End point)
         bool enabled = true;                             // after mute / solo
+        bool invert = false;                             // polarity flipped
 
         double length() const noexcept    { return attack + hold + decay; }
     };

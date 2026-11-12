@@ -432,6 +432,53 @@ public:
             expectLessThan (out.getMagnitude (0, endSample - 200, 200), 0.1f);
         }
 
+        beginTest ("Phase flip inverts a band, and gliding through zero never clicks");
+        {
+            KickSet tone;
+            for (int b = 0; b < 4; ++b)
+            {
+                auto& band = tone.bands[(size_t) b];
+                band.sampleRate = 48000.0;
+                band.audio.setSize (1, 96000);
+                for (int i = 0; i < 96000; ++i)
+                    band.audio.setSample (0, i, b == 1 ? 0.8f * (float) std::sin (MathConstants<double>::twoPi * 50.0 * i / 48000.0) : 0.0f);
+            }
+            auto renderWith = [&tone] (bool flipMidway, bool startInverted)
+            {
+                KickEngine engine;
+                engine.prepare (48000.0);
+                EngineSettings es;
+                for (auto& b : es.bands)
+                {
+                    b.attack = 0.0; b.hold = 1.5; b.decay = 0.4; b.fade = 0.0;
+                }
+                es.bands[1].invert = startInverted;
+                engine.trigger (&tone, es, 1.0f);
+                AudioBuffer<float> out (2, 48000);
+                out.clear();
+                for (int pos = 0; pos < 48000; pos += 64)
+                {
+                    if (flipMidway && pos == 24320)
+                        es.bands[1].invert = ! es.bands[1].invert;
+                    engine.render (&tone, es, out, pos, 64);
+                }
+                return out;
+            };
+
+            const auto normal = renderWith (false, false);
+            const auto flipped = renderWith (false, true);
+            float diff = 0.0f;
+            for (int i = 0; i < 48000; ++i)
+                diff = jmax (diff, std::abs (normal.getSample (0, i) + flipped.getSample (0, i)));
+            expectLessThan (diff, 1.0e-5f);    // exactly the opposite polarity
+
+            const auto toggled = renderWith (true, false);
+            float maxStep = 0.0f;
+            for (int i = 1; i < 48000; ++i)
+                maxStep = jmax (maxStep, std::abs (toggled.getSample (0, i) - toggled.getSample (0, i - 1)));
+            expectLessThan (maxStep, 0.012f);
+        }
+
         beginTest ("Tune Body plays the kick in the key's nearest octave");
         {
             TailSettings t;

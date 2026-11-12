@@ -188,7 +188,11 @@ namespace kd
 
         std::array<float, kNumBands> targetGain {};
         for (int b = 0; b < kNumBands; ++b)
-            targetGain[(size_t) b] = settings.bands[(size_t) b].enabled ? settings.bands[(size_t) b].gain : 0.0f;
+        {
+            // the polarity flip is part of the smoothed gain, so flipping glides through zero (no click)
+            const auto& bs = settings.bands[(size_t) b];
+            targetGain[(size_t) b] = bs.enabled ? (bs.invert ? -bs.gain : bs.gain) : 0.0f;
+        }
         if (! gainsInitialised)
         {
             bandGain = targetGain;
@@ -260,7 +264,7 @@ namespace kd
                         continue;
 
                     const float gain = g[(size_t) b];
-                    if (gain <= 1.0e-6f)
+                    if (std::abs (gain) <= 1.0e-6f)
                         continue;
 
                     const float env = envelopeAt (v.env[(size_t) b], v.t);

@@ -496,7 +496,8 @@ namespace kd::ui
             && env.curve == o.env.curve && env.gain == o.env.gain && env.fade == o.env.fade
             && startFrac == o.startFrac && endFrac == o.endFrac && spanSeconds == o.spanSeconds && ratio == o.ratio
             && displayScale == o.displayScale && tailOn == o.tailOn && tailStart == o.tailStart && tailLevel == o.tailLevel
-            && tailText == o.tailText && lengthText == o.lengthText && rangeText == o.rangeText && enabled == o.enabled;
+            && tailText == o.tailText && lengthText == o.lengthText && rangeText == o.rangeText && enabled == o.enabled
+            && inverted == o.inverted;
     }
 
     BandView::BandView (int bandIndex) : band (bandIndex)
@@ -565,6 +566,12 @@ namespace kd::ui
 
                 float hi = ov->maxs[(size_t) bin] * state.displayScale;
                 float lo = ov->mins[(size_t) bin] * state.displayScale;
+                if (state.inverted)
+                {
+                    const float top = -lo;
+                    lo = -hi;
+                    hi = top;
+                }
                 raw.addRectangle (inner.getX() + (float) x, mid - hi * halfH, 1.0f, jmax (1.0f, (hi - lo) * halfH));
 
                 const double toEnd = (state.endFrac * ov->seconds - (state.startFrac * ov->seconds + t * state.ratio)) / state.ratio;
@@ -655,6 +662,8 @@ namespace kd::ui
             drawScreenText (g, state.tailText, footer, Justification::centredLeft, 9.5f, Colour (0xff9fe0ff));
         if (! state.enabled)
             drawScreenText (g, "MUTED", inner, Justification::centred, 12.0f, Colours::white.withAlpha (0.6f));
+        if (state.inverted)
+            drawScreenText (g, "PHASE INVERTED", header.withTrimmedLeft (60.0f), Justification::centredLeft, 9.5f, Colour (0xffffc04a));
 
         if (dragHover)
             drawDropHighlight (g, b);
