@@ -896,6 +896,82 @@ namespace kd::ui
     }
 
     //==============================================================================
+    BandLevelStrip::BandLevelStrip (int b) : band (b)
+    {
+        setTooltip ("This band's level on its own, as you hear it (after its envelope, Fade and Level knob; "
+                    "before the FX). PK = peak, RMS = the loudest 50 ms. REF = the difference from the chosen "
+                    "reference (+ = louder than the reference)");
+    }
+
+    void BandLevelStrip::setLevel (const BandLevel& l, bool has, bool active, float ref)
+    {
+        if (! measured || l.active != level.active || std::abs (l.peakDb - level.peakDb) > 0.01f
+            || std::abs (l.rmsDb - level.rmsDb) > 0.01f || has != hasRef || active != refActive || std::abs (ref - refRms) > 0.01f)
+        {
+            level = l;
+            hasRef = has;
+            refActive = active;
+            refRms = ref;
+            measured = true;
+            repaint();
+        }
+    }
+
+    void BandLevelStrip::paint (Graphics& g)
+    {
+        auto b = getLocalBounds().toFloat();
+        CustomLookAndFeel::drawInsetBox (g, b);
+        auto inner = b.reduced (4.0f, 3.0f);
+
+        // bar: RMS from -48 dB to 0 dB along the bottom
+        auto bar = inner.removeFromBottom (3.0f);
+        auto xForDb = [&bar] (float db) { return bar.getX() + bar.getWidth() * jlimit (0.0f, 1.0f, (db + 48.0f) / 48.0f); };
+        g.setColour (Colours::white.withAlpha (0.06f));
+        g.fillRect (bar);
+        if (level.active)
+        {
+            g.setColour (bandColour (band));
+            g.fillRect (bar.withRight (xForDb (level.rmsDb)));
+        }
+        if (hasRef && refActive)
+        {
+            g.setColour (Colours::white);
+            g.fillRect (xForDb (refRms) - 1.0f, bar.getY() - 3.0f, 2.0f, bar.getHeight() + 3.0f);
+        }
+
+        auto fmt = [] (float db) { return db <= -99.0f ? String ("-inf") : String (db, 1); };
+        g.setFont (CustomLookAndFeel::uiFont (10.0f, true));
+        if (! measured)
+        {
+            g.setColour (VirusColours::labelText);
+            g.drawText ("MEASURING...", inner, Justification::centredLeft);
+            return;
+        }
+        if (! level.active)
+        {
+            g.setColour (VirusColours::labelText);
+            g.drawText ("MUTED", inner, Justification::centredLeft);
+            return;
+        }
+
+        g.setColour (Colours::white);
+        g.drawText ("PK " + fmt (level.peakDb) + "   RMS " + fmt (level.rmsDb), inner, Justification::centredLeft);
+
+        if (hasRef && refActive)
+        {
+            const float diff = level.rmsDb - refRms;
+            const bool close = std::abs (diff) < 0.5f;
+            g.setColour (close ? Colour (0xff8ff0b0) : Colour (0xffffc04a));
+            g.drawText ("REF " + String (diff > 0.0f ? "+" : "") + String (diff, 1) + " dB", inner, Justification::centredRight);
+        }
+        else if (hasRef)
+        {
+            g.setColour (VirusColours::labelText);
+            g.drawText ("REF MUTED", inner, Justification::centredRight);
+        }
+    }
+
+    //==============================================================================
     void SaturationCurve::setState (bool o, int t, float d, float m)
     {
         if (o != on || t != type || d != driveDb || m != mix)

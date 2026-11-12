@@ -5,10 +5,12 @@
 
 //==============================================================================
 // Renders the editor to a PNG without a display:
-//   KickDrumTests --snapshot out.png [width] [preset] [browser index] [start %] [end %]
-static int writeSnapshot (const juce::File& file, int width, int preset, int browser, float startPct = 0.0f, float endPct = 100.0f)
+//   KickDrumTests --snapshot out.png [width] [preset] [browser index] [start %] [end %] [level reference]
+static int writeSnapshot (const juce::File& file, int width, int preset, int browser, float startPct = 0.0f, float endPct = 100.0f,
+                          const juce::String& reference = {})
 {
     KickDrumAudioProcessor processor;
+    processor.setSelectedReference (reference);
     if (preset > 0)
         processor.setCurrentProgram (preset);
     for (auto [id, v] : { std::pair<const char*, float> { kd::ParamIDs::sampleStart, startPct }, { kd::ParamIDs::sampleEnd, endPct } })
@@ -46,7 +48,8 @@ int main (int argc, char* argv[])
                               argc > 4 ? juce::String (argv[4]).getIntValue() : 0,
                               argc > 5 ? juce::String (argv[5]).getIntValue() : -1,
                               argc > 6 ? juce::String (argv[6]).getFloatValue() : 0.0f,
-                              argc > 7 ? juce::String (argv[7]).getFloatValue() : 100.0f);
+                              argc > 7 ? juce::String (argv[7]).getFloatValue() : 100.0f,
+                              argc > 8 ? juce::String (argv[8]) : juce::String());
 
     // print to stdout (the default goes to the debugger output on Windows, which CI can't see)
     struct ConsoleRunner : public juce::UnitTestRunner

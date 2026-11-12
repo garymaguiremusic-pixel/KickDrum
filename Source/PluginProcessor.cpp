@@ -405,6 +405,7 @@ void KickDrumAudioProcessor::getStateInformation (MemoryBlock& destData)
     ui.setProperty ("width", editorSize.x, nullptr);
     ui.setProperty ("height", editorSize.y, nullptr);
     ui.setProperty (programId, currentProgram, nullptr);
+    ui.setProperty ("levelReference", selectedReference, nullptr);
     for (int i = 0; i <= kNumBands; ++i)
         ui.appendChild (browserToTree (browserStates[(size_t) i], i), nullptr);
     state.appendChild (ui, nullptr);
@@ -455,6 +456,7 @@ void KickDrumAudioProcessor::setStateInformation (const void* data, int sizeInBy
     {
         editorSize = { (int) ui.getProperty ("width", 0), (int) ui.getProperty ("height", 0) };
         currentProgram = jlimit (0, getNumPrograms() - 1, (int) ui.getProperty (programId, 0));
+        selectedReference = ui.getProperty ("levelReference", String()).toString();
         for (const auto& child : ui)
             if (child.hasType (browserTag))
                 treeToBrowser (child, browserStates[(size_t) jlimit (0, kNumBands, (int) child.getProperty ("index", 0))]);

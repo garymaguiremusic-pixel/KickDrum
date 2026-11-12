@@ -6,9 +6,22 @@
 
 namespace kd
 {
+    /** The level of one band on its own, as heard: after its envelope, Fade and Level knob
+        (before the FX and the master volume, which act on all bands together). */
+    struct BandLevel
+    {
+        bool active = false;          // false when the band is muted / not soloed
+        float peakDb = -100.0f;       // sample peak
+        float rmsDb = -100.0f;        // loudest 50 ms RMS: the band's weight
+    };
+
+    /** Measures one band's peak and loudest 50 ms RMS (exposed for tests). */
+    BandLevel measureLevel (const juce::AudioBuffer<float>&, double sampleRate);
+
     /** One hit rendered through the whole instrument: bands, tail, FX and volume. */
     struct RenderedHit
     {
+        std::array<BandLevel, kNumBands> bands;   // filled when the request asks for band levels
         juce::AudioBuffer<float> audio;     // stereo, at 'sampleRate'
         double sampleRate = 48000.0;
         double endSeconds = 0.0;            // where it falls below -60 dBFS for good
@@ -33,6 +46,7 @@ namespace kd
             float volume = 1.0f;
             double sampleRate = 48000.0;
             double seconds = 2.0;
+            bool measureBands = false;      // also render each band on its own and measure it
         };
 
         OutputRenderer();

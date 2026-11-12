@@ -8,6 +8,7 @@
 #include "UI/Controls.h"
 #include "UI/KickDisplays.h"
 #include "UI/DragAudioHandle.h"
+#include "Browser/LevelReferences.h"
 
 //==============================================================================
 /**
@@ -19,7 +20,7 @@ class KickDrumAudioProcessorEditor : public juce::AudioProcessorEditor,
                                      private juce::Timer
 {
 public:
-    static constexpr int kBaseWidth = 1100, kBaseHeight = 890;
+    static constexpr int kBaseWidth = 1100, kBaseHeight = 912;
 
     explicit KickDrumAudioProcessorEditor (KickDrumAudioProcessor&);
     ~KickDrumAudioProcessorEditor() override;
@@ -35,6 +36,7 @@ private:
 
         int band;
         kd::ui::BandView view;
+        kd::ui::BandLevelStrip levelStrip;
         LcdDisplay sampleLcd;
         StarButton star;
         ArrowIconButton back { false }, next { true };
@@ -51,7 +53,8 @@ private:
         juce::Rectangle<float> panel;
     };
 
-    class Content : public juce::Component
+    class Content : public juce::Component,
+                    private juce::ChangeListener
     {
     public:
         explicit Content (KickDrumAudioProcessor&);
@@ -92,6 +95,17 @@ private:
         kd::ui::OutputView outputView;
         LcdDisplay outLengthLcd, outPeakLcd;
         kd::OutputRenderer renderer;
+        std::shared_ptr<const kd::RenderedHit> lastHit;
+
+        // Band-level references (named, stored per computer)
+        juce::SharedResourcePointer<LevelReferences> references;
+        juce::ComboBox refBox;
+        juce::TextButton saveRefButton { "Save Ref..." }, deleteRefButton { "Delete" }, matchLevelsButton { "Match Levels" };
+        void changeListenerCallback (juce::ChangeBroadcaster*) override;
+        void refreshReferenceList();
+        void updateLevelStrips();
+        void saveReference();
+        void matchLevels();
         juce::int64 lastRenderKey = 0;
         void requestRenderIfNeeded (const kd::KickBank::DisplayInfo&);
         kd::OutputRenderer::Request makeRenderRequest (const kd::KickBank::DisplayInfo&) const;

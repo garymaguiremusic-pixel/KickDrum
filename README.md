@@ -81,7 +81,26 @@ tail, FX, volume), as a 24-bit stereo WAV at the session's sample rate. The file
 exports used in a project are never overwritten. Right-click it to save the WAV somewhere else or open
 the export folder. The export uses the Key knob's key (Key Lock follows MIDI notes only when playing).
 
-## Tail (tuned extension)
+## Band levels and references
+
+Each band shows its own level, as you hear it (after its envelope, Fade and Level knob; before the
+FX and master volume), worked out from the kick itself so you don't need to play it:
+
+* **PK**: the band's peak, in dB.
+* **RMS**: the loudest 50 ms of the band, in dB: its weight. The bar shows it from -48 to 0 dB.
+
+**Level references** (the row under the kick waveform) let you balance new kicks against ones you like:
+
+* **Save Ref...** stores the four band levels of the current kick under a name ("Techno", "Trap 808"
+  ...). Using an existing name replaces it. References are saved on this computer
+  (`%APPDATA%\KickDrum\LevelReferences.xml`) and shared by every project.
+* Pick a reference in the list and each band shows **REF +/- x.x dB**: how much louder (+) or quieter
+  (-) than the reference its RMS is (green within 0.5 dB), with a white marker on the bar.
+* **Match Levels** sets each band's Level so its RMS matches the reference (to 0.1 dB). Muted bands, and
+  bands that were muted in the reference, are left alone.
+* **Delete** removes the selected reference. The chosen reference is remembered with the project.
+
+
 
 * The Sub band's pitch is detected when a kick loads (shown as KICK, and on the main display).
 * **Tail On**: from **Start**, the Sub band hands over to a pure sine that continues the kick's own

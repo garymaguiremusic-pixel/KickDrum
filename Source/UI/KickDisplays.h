@@ -205,6 +205,28 @@ namespace kd::ui
     };
 
     //==============================================================================
+    /**
+        One band's level as heard (after its envelope, Fade and Level knob): a bar for the
+        loudest 50 ms RMS, the peak and RMS in dB, and the difference from the chosen
+        reference (with a marker where the reference sits).
+    */
+    class BandLevelStrip : public juce::Component,
+                           public juce::SettableTooltipClient
+    {
+    public:
+        explicit BandLevelStrip (int bandIndex);
+
+        void setLevel (const BandLevel&, bool hasReference, bool referenceActive, float referenceRmsDb);
+        void paint (juce::Graphics&) override;
+
+    private:
+        int band;
+        BandLevel level;
+        bool hasRef = false, refActive = false, measured = false;
+        float refRms = -100.0f;
+    };
+
+    //==============================================================================
     /** The saturation transfer curve (input level across, output up). */
     class SaturationCurve : public juce::Component
     {

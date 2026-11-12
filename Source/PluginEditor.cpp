@@ -48,6 +48,7 @@ void KickDrumAudioProcessorEditor::timerCallback()
 KickDrumAudioProcessorEditor::BandControls::BandControls (KickDrumAudioProcessor& p, int b)
     : band (b),
       view (b),
+      levelStrip (b),
       attackModeButtons (*p.apvts.getParameter (bandParam (b, BandParams::attackMode)), { "ms", "Sync" },
                          "Attack in milliseconds, or Sync: the attack lasts a note length (1/64 to 1/4) at the tempo"),
       modeButtons (*p.apvts.getParameter (bandParam (b, BandParams::decayMode)), { "ms", "Sync" },
@@ -159,11 +160,48 @@ KickDrumAudioProcessorEditor::Content::Content (KickDrumAudioProcessor& p)
     addAndMakeVisible (outLengthLcd);
     addAndMakeVisible (outPeakLcd);
     dragAudio.createFile = [this] { return exportAudio(); };
+
+    // Band-level references
+    refBox.setTooltip ("Level reference to compare the bands with (saved on this computer, shared by every project)");
+    refBox.onChange = [this]
+    {
+        processor.setSelectedReference (refBox.getSelectedId() > 1 ? refBox.getText() : String());
+        updateLevelStrips();
+    };
+    addAndMakeVisible (refBox);
+    saveRefButton.setTooltip ("Save the four bands' levels of this kick as a named reference (an existing name is replaced)");
+    saveRefButton.onClick = [this] { saveReference(); };
+    addAndMakeVisible (saveRefButton);
+    deleteRefButton.setTooltip ("Delete the selected reference");
+    deleteRefButton.onClick = [this]
+    {
+        const auto name = processor.getSelectedReference();
+        if (name.isEmpty())
+            return;
+        AlertWindow::showOkCancelBox (MessageBoxIconType::QuestionIcon, "Delete level reference",
+                                      "Delete the reference \"" + name + "\"?", "Delete", "Cancel", this,
+                                      ModalCallbackFunction::create ([this, name] (int result)
+                                      {
+                                          if (result == 0)
+                                              return;
+                                          references->remove (name);
+                                          processor.setSelectedReference ({});
+                                          refreshReferenceList();
+                                      }));
+    };
+    addAndMakeVisible (deleteRefButton);
+    matchLevelsButton.setTooltip ("Set each band's Level so its RMS matches the selected reference");
+    matchLevelsButton.onClick = [this] { matchLevels(); };
+    addAndMakeVisible (matchLevelsButton);
+    references->addChangeListener (this);
+    refreshReferenceList();
     addAndMakeVisible (dragAudio);
     outLengthLcd.setTooltip ("How long the hit lasts (until it stays below -60 dBFS), in beats at the current tempo");
     outPeakLcd.setTooltip ("Peak level of one full-velocity hit");
     renderer.onRendered = [this] (std::shared_ptr<const RenderedHit> hit)
     {
+        lastHit = hit;
+        updateLevelStrips();
         outputView.setHit (hit);
         const double beatSeconds = 60.0 / jmax (1.0f, processor.getTempo());
         outLengthLcd.setContent ("LENGTH", String (hit->endSeconds / beatSeconds, 2) + " BEATS");
@@ -269,7 +307,100 @@ KickDrumAudioProcessorEditor::Content::Content (KickDrumAudioProcessor& p)
     updateDisplays();
 }
 
-KickDrumAudioProcessorEditor::Content::~Content() = default;
+KickDrumAudioProcessorEditor::Content::~Content()
+{
+    references->removeChangeListener (this);
+}
+
+void KickDrumAudioProcessorEditor::Content::changeListenerCallback (ChangeBroadcaster*)
+{
+    refreshReferenceList();
+}
+
+void KickDrumAudioProcessorEditor::Content::refreshReferenceList()
+{
+    const auto selected = processor.getSelectedReference();
+    refBox.clear (dontSendNotification);
+    refBox.addItem ("No reference", 1);
+    int id = 2, selectedId = 1;
+    for (auto& r : references->getAll())
+    {
+        if (r.name.equalsIgnoreCase (selected))
+            selectedId = id;
+        refBox.addItem (r.name, id++);
+    }
+    refBox.setSelectedId (selectedId, dontSendNotification);
+    updateLevelStrips();
+}
+
+void KickDrumAudioProcessorEditor::Content::updateLevelStrips()
+{
+    LevelReferences::Reference ref;
+    const bool hasRef = processor.getSelectedReference().isNotEmpty() && references->find (processor.getSelectedReference(), ref);
+    deleteRefButton.setEnabled (hasRef);
+    matchLevelsButton.setEnabled (hasRef && lastHit != nullptr);
+
+    if (lastHit == nullptr)
+        return;
+    for (int b = 0; b < kNumBands; ++b)
+        bands[(size_t) b]->levelStrip.setLevel (lastHit->bands[(size_t) b], hasRef,
+                                                hasRef && ref.active[(size_t) b], ref.rmsDb[(size_t) b]);
+}
+
+void KickDrumAudioProcessorEditor::Content::saveReference()
+{
+    if (lastHit == nullptr)
+        return;
+
+    const auto info = bank.getDisplayInfo();
+    const auto suggested = processor.getSelectedReference().isNotEmpty() ? processor.getSelectedReference()
+                                                                         : info.global.name;
+    auto* window = new AlertWindow ("Save level reference",
+                                    "Name for the four band levels of this kick. Using an existing name replaces it.",
+                                    MessageBoxIconType::NoIcon, this);
+    window->addTextEditor ("name", suggested, "Name");
+    window->addButton ("Save", 1, KeyPress (KeyPress::returnKey));
+    window->addButton ("Cancel", 0, KeyPress (KeyPress::escapeKey));
+    window->enterModalState (true, ModalCallbackFunction::create ([this, window, hit = lastHit] (int result)
+    {
+        const auto name = window->getTextEditorContents ("name").trim();
+        if (result != 1 || name.isEmpty())
+            return;
+
+        LevelReferences::Reference ref;
+        ref.name = name;
+        for (int b = 0; b < kNumBands; ++b)
+        {
+            ref.rmsDb[(size_t) b] = hit->bands[(size_t) b].rmsDb;
+            ref.peakDb[(size_t) b] = hit->bands[(size_t) b].peakDb;
+            ref.active[(size_t) b] = hit->bands[(size_t) b].active;
+        }
+        references->save (ref);
+        processor.setSelectedReference (name);
+        refreshReferenceList();
+    }), true);
+}
+
+void KickDrumAudioProcessorEditor::Content::matchLevels()
+{
+    LevelReferences::Reference ref;
+    if (lastHit == nullptr || ! references->find (processor.getSelectedReference(), ref))
+        return;
+
+    for (int b = 0; b < kNumBands; ++b)
+    {
+        const auto& now = lastHit->bands[(size_t) b];
+        if (! now.active || ! ref.active[(size_t) b] || now.rmsDb <= -99.0f || ref.rmsDb[(size_t) b] <= -99.0f)
+            continue;
+
+        auto* level = processor.apvts.getParameter (bandParam (b, BandParams::level));
+        const float current = level->convertFrom0to1 (level->getValue());
+        const float target = jlimit (-60.0f, 12.0f, std::round ((current + ref.rmsDb[(size_t) b] - now.rmsDb) * 10.0f) / 10.0f);
+        level->beginChangeGesture();
+        level->setValueNotifyingHost (level->convertTo0to1 (target));
+        level->endChangeGesture();
+    }
+}
 
 //==============================================================================
 void KickDrumAudioProcessorEditor::Content::addKnob (VirusKnob& knob, const String& id, std::function<String (float)> describe,
@@ -307,6 +438,7 @@ void KickDrumAudioProcessorEditor::Content::setupBand (BandControls& c)
     c.view.onAudition = [this, b] { processor.audition ((uint8) (1 << b)); };
     c.view.onBrowse = [this, b] { showBrowser (b); };
     addAndMakeVisible (c.view);
+    addAndMakeVisible (c.levelStrip);
 
     // mini browser
     c.sampleLcd.setTooltip ("The kick this band plays. MAIN = the main kick, OWN = this band's own sample");
@@ -569,7 +701,9 @@ void KickDrumAudioProcessorEditor::Content::requestRenderIfNeeded (const KickBan
         return;
     lastRenderKey = key;
 
-    renderer.request (makeRenderRequest (info));
+    auto r = makeRenderRequest (info);
+    r.measureBands = true;
+    renderer.request (r);
 }
 
 OutputRenderer::Request KickDrumAudioProcessorEditor::Content::makeRenderRequest (const KickBank::DisplayInfo& info) const
@@ -621,53 +755,58 @@ void KickDrumAudioProcessorEditor::Content::resized()
     playButton.setBounds (1004, 10, 84, 28);
 
     // Kick + crossover
-    mainWave.setBounds (12, 54, 640, 108);
+    mainWave.setBounds (12, 54, 640, 80);
+    refBox.setBounds (86, 138, 214, 24);
+    saveRefButton.setBounds (306, 138, 86, 24);
+    deleteRefButton.setBounds (396, 138, 70, 24);
+    matchLevelsButton.setBounds (472, 138, 180, 24);
     crossover.setBounds (660, 54, 428, 80);
     for (int i = 0; i < 3; ++i)
         xoverFields[(size_t) i]->setBounds (660 + i * 74, 138, 70, 24);
     slopeButtons.setBounds (884, 138, 204, 24);
 
     // Output (bottom row, under the FX)
-    outputView.setBounds (12, 756, 900, 122);
-    outLengthLcd.setBounds (920, 790, 168, 26);
-    outPeakLcd.setBounds (920, 822, 168, 26);
-    dragAudio.setBounds (920, 852, 168, 26);
+    outputView.setBounds (12, 778, 900, 122);
+    outLengthLcd.setBounds (920, 812, 168, 26);
+    outPeakLcd.setBounds (920, 844, 168, 26);
+    dragAudio.setBounds (920, 874, 168, 26);
 
     // Bands
     for (int b = 0; b < kNumBands; ++b)
     {
         auto& c = *bands[(size_t) b];
         const int x = 12 + b * 271, y = 170;
-        c.panel = { (float) x, (float) y, 263.0f, 314.0f };
+        c.panel = { (float) x, (float) y, 263.0f, 336.0f };
 
         c.view.setBounds (x + 8, y + 24, 247, 98);
-        c.sampleLcd.setBounds (x + 8, y + 126, 247, 24);
-        c.star.setBounds (x + 8, y + 153, 24, 24);
-        c.back.setBounds (x + 36, y + 153, 24, 24);
-        c.next.setBounds (x + 62, y + 153, 24, 24);
-        c.browse.setBounds (x + 90, y + 153, 80, 24);
-        c.useMain.setBounds (x + 174, y + 153, 81, 24);
+        c.levelStrip.setBounds (x + 8, y + 125, 247, 20);
+        c.sampleLcd.setBounds (x + 8, y + 148, 247, 24);
+        c.star.setBounds (x + 8, y + 175, 24, 24);
+        c.back.setBounds (x + 36, y + 175, 24, 24);
+        c.next.setBounds (x + 62, y + 175, 24, 24);
+        c.browse.setBounds (x + 90, y + 175, 80, 24);
+        c.useMain.setBounds (x + 174, y + 175, 81, 24);
 
         VirusKnob* knobs[] { &c.attack, &c.length, &c.decay, &c.curve, &c.fade, &c.level };
         for (int k = 0; k < 6; ++k)
-            knobs[k]->setBounds (x + 6 + roundToInt (k * 41.8f), y + 182, 43, 68);
+            knobs[k]->setBounds (x + 6 + roundToInt (k * 41.8f), y + 204, 43, 68);
 
-        c.attackModeButtons.setBounds (x + 60, y + 256, 76, 24);
-        c.attackSyncBox.setBounds (x + 140, y + 256, 74, 24);
-        c.mute.setBounds (x + 220, y + 256, 35, 24);
-        c.modeButtons.setBounds (x + 60, y + 284, 76, 24);
-        c.syncBox.setBounds (x + 140, y + 284, 74, 24);
-        c.solo.setBounds (x + 220, y + 284, 35, 24);
+        c.attackModeButtons.setBounds (x + 60, y + 278, 76, 24);
+        c.attackSyncBox.setBounds (x + 140, y + 278, 74, 24);
+        c.mute.setBounds (x + 220, y + 278, 35, 24);
+        c.modeButtons.setBounds (x + 60, y + 306, 76, 24);
+        c.syncBox.setBounds (x + 140, y + 306, 74, 24);
+        c.solo.setBounds (x + 220, y + 306, 35, 24);
     }
 
     // Bottom row
-    tailPanel   = { 12.0f, 492.0f, 300.0f, 256.0f };
-    satPanel    = { 320.0f, 492.0f, 300.0f, 256.0f };
-    compPanel   = { 628.0f, 492.0f, 300.0f, 256.0f };
-    masterPanel = { 936.0f, 492.0f, 152.0f, 256.0f };
+    tailPanel   = { 12.0f, 514.0f, 300.0f, 256.0f };
+    satPanel    = { 320.0f, 514.0f, 300.0f, 256.0f };
+    compPanel   = { 628.0f, 514.0f, 300.0f, 256.0f };
+    masterPanel = { 936.0f, 514.0f, 152.0f, 256.0f };
 
     {
-        const int x = 12, y = 492;
+        const int x = 12, y = 514;
         tailOnButton.setBounds (x + 10, y + 28, 64, 26);
         tuneBodyButton.setBounds (x + 78, y + 28, 78, 26);
         keyLockButton.setBounds (x + 160, y + 28, 72, 26);
@@ -684,7 +823,7 @@ void KickDrumAudioProcessorEditor::Content::resized()
         tailLevelKnob.setBounds (x + 232, y + 168, 60, 72);
     }
     {
-        const int x = 320, y = 492;
+        const int x = 320, y = 514;
         satOnButton.setBounds (x + 10, y + 28, 60, 26);
         satTypeBox.setBounds (x + 76, y + 29, 214, 24);
         driveKnob.setBounds (x + 14, y + 66, 84, 84);
@@ -695,7 +834,7 @@ void KickDrumAudioProcessorEditor::Content::resized()
         satLevelKnob.setBounds (x + 232, y + 168, 60, 72);
     }
     {
-        const int x = 628, y = 492;
+        const int x = 628, y = 514;
         compOnButton.setBounds (x + 10, y + 28, 60, 26);
         grMeter.setBounds (x + 76, y + 29, 214, 24);
         threshKnob.setBounds (x + 14, y + 66, 84, 84);
@@ -707,7 +846,7 @@ void KickDrumAudioProcessorEditor::Content::resized()
         compMixKnob.setBounds (x + 202, y + 168, 60, 72);
     }
     {
-        const int x = 936, y = 492;
+        const int x = 936, y = 514;
         volumeKnob.setBounds (x + 34, y + 28, 84, 84);
         volumeLcd.setBounds (x + 10, y + 118, 132, 26);
         velKnob.setBounds (x + 46, y + 148, 60, 70);
@@ -729,7 +868,8 @@ void KickDrumAudioProcessorEditor::Content::paint (Graphics& g)
     drawWordmark (g, { 18.0f, 4.0f, 300.0f, 42.0f });
 
     CustomLookAndFeel::drawSmallLabel (g, "Preset", { 400.0f, 10.0f, 64.0f, 28.0f }, Justification::centredRight);
-    CustomLookAndFeel::drawSmallLabel (g, "Output  -  1/4 note", { 920.0f, 762.0f, 168.0f, 16.0f }, Justification::centredLeft);
+    CustomLookAndFeel::drawSmallLabel (g, "Level ref", { 12.0f, 138.0f, 72.0f, 24.0f }, Justification::centredLeft);
+    CustomLookAndFeel::drawSmallLabel (g, "Output  -  1/4 note", { 920.0f, 784.0f, 168.0f, 16.0f }, Justification::centredLeft);
 
     const auto names = getBandNames();
     for (int b = 0; b < kNumBands; ++b)
@@ -741,9 +881,9 @@ void KickDrumAudioProcessorEditor::Content::paint (Graphics& g)
         g.setColour (kd::ui::bandColour (b));
         g.fillRoundedRectangle (c.panel.getX() + 8.0f, c.panel.getY() + 6.0f, 18.0f, 6.0f, 2.0f);
 
-        CustomLookAndFeel::drawSmallLabel (g, "Attack", { c.panel.getX() + 8.0f, c.panel.getY() + 256.0f, 50.0f, 24.0f },
+        CustomLookAndFeel::drawSmallLabel (g, "Attack", { c.panel.getX() + 8.0f, c.panel.getY() + 278.0f, 50.0f, 24.0f },
                                            Justification::centredLeft);
-        CustomLookAndFeel::drawSmallLabel (g, "Length", { c.panel.getX() + 8.0f, c.panel.getY() + 284.0f, 50.0f, 24.0f },
+        CustomLookAndFeel::drawSmallLabel (g, "Length", { c.panel.getX() + 8.0f, c.panel.getY() + 306.0f, 50.0f, 24.0f },
                                            Justification::centredLeft);
     }
 

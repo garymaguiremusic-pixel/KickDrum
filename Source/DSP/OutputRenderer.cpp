@@ -27,6 +27,39 @@ namespace kd
         notify();
     }
 
+    BandLevel measureLevel (const AudioBuffer<float>& audio, double sampleRate)
+    {
+        BandLevel level;
+        level.active = true;
+        const int len = audio.getNumSamples();
+        const int chans = audio.getNumChannels();
+        if (len == 0 || chans == 0)
+            return level;
+
+        const int window = jmax (1, (int) (sampleRate * 0.05));
+        double sum = 0.0, best = 0.0;
+        float peak = 0.0f;
+        std::vector<double> sq ((size_t) len);
+        for (int i = 0; i < len; ++i)
+        {
+            double s = 0.0;
+            for (int ch = 0; ch < chans; ++ch)
+            {
+                const float v = audio.getSample (ch, i);
+                peak = jmax (peak, std::abs (v));
+                s += (double) v * v;
+            }
+            sq[(size_t) i] = s / chans;
+            sum += sq[(size_t) i];
+            if (i >= window)
+                sum -= sq[(size_t) (i - window)];
+            best = jmax (best, sum / window);     // silence before the hit counts as 0
+        }
+        level.peakDb = Decibels::gainToDecibels (peak, -100.0f);
+        level.rmsDb = best > 0.0 ? jmax (-100.0f, (float) (10.0 * std::log10 (best))) : -100.0f;
+        return level;
+    }
+
     std::shared_ptr<RenderedHit> OutputRenderer::render (const Request& r)
     {
         auto hit = std::make_shared<RenderedHit>();
@@ -74,6 +107,29 @@ namespace kd
                 last = i;
         }
         hit->endSeconds = last / r.sampleRate;
+
+        // each band on its own, as heard (envelope, Fade, Level), without the FX and master volume
+        if (r.measureBands)
+        {
+            for (int b = 0; b < kNumBands; ++b)
+            {
+                auto& level = hit->bands[(size_t) b];
+                if (! settings.bands[(size_t) b].enabled)
+                {
+                    level = BandLevel();
+                    continue;
+                }
+
+                KickEngine solo;
+                solo.prepare (r.sampleRate);
+                solo.trigger (r.set.get(), settings, 1.0f, (uint8) (1 << b));
+                AudioBuffer<float> band (2, length);
+                band.clear();
+                for (int pos = 0; pos < length; pos += block)
+                    solo.render (r.set.get(), settings, band, pos, jmin (block, length - pos));
+                level = measureLevel (band, r.sampleRate);
+            }
+        }
         return hit;
     }
 

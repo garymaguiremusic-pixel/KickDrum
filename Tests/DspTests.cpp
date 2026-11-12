@@ -7,6 +7,7 @@
 #include "DSP/OutputRenderer.h"
 #include <juce_audio_formats/juce_audio_formats.h>
 #include "PluginProcessor.h"
+#include "Browser/LevelReferences.h"
 #include "UI/Shared/VirusComponents.h"
 
 using namespace juce;
@@ -876,6 +877,78 @@ public:
                 k->mouseUp (event (*k, centre.translated (0.0f, -13.0f), {}, centre));
                 expectWithinAbsoluteError (k->getValue(), std::round (k->getValue()), 2.0e-3, name + ": drag");
             }
+        }
+
+        beginTest ("Band levels: peak and loudest-50 ms RMS, per band, as heard");
+        {
+            // a 0.5 sine: peak -6.0 dB, RMS -9.0 dB
+            AudioBuffer<float> sine (2, 48000);
+            for (int i = 0; i < 48000; ++i)
+                for (int ch = 0; ch < 2; ++ch)
+                    sine.setSample (ch, i, 0.5f * (float) std::sin (MathConstants<double>::twoPi * 100.0 * i / 48000.0));
+            const auto l = measureLevel (sine, 48000.0);
+            expectWithinAbsoluteError (l.peakDb, -6.02f, 0.05f);
+            expectWithinAbsoluteError (l.rmsDb, -9.03f, 0.05f);
+
+            KickDrumAudioProcessor p;
+            p.getBank().waitUntilIdle (5000);
+            MessageManager::getInstance()->runDispatchLoopUntil (100);
+            auto request = [&p]
+            {
+                OutputRenderer::Request r;
+                r.set = p.getBank().getDisplayInfo().set;
+                r.engine = p.makeEngineSettings();
+                r.saturation = p.makeSaturationSettings();
+                r.compressor = p.makeCompressorSettings();
+                r.volume = p.getVolumeGain();
+                r.sampleRate = 48000.0;
+                r.seconds = 1.0;
+                r.measureBands = true;
+                return r;
+            };
+            const auto before = OutputRenderer::render (request());
+            for (auto& b : before->bands)
+                expect (b.active);
+            expectGreaterThan (before->bands[0].rmsDb, before->bands[3].rmsDb);   // the built-in kick is mostly Sub
+
+            // +6 dB on the Body band: its level goes up 6 dB, the others stay; muting the Air band
+            auto set = [&p] (const String& id, float v) { auto* q = p.apvts.getParameter (id); q->setValueNotifyingHost (q->convertTo0to1 (v)); };
+            set (bandParam (1, BandParams::level), 6.0f);
+            set (bandParam (3, BandParams::mute), 1.0f);
+            const auto after = OutputRenderer::render (request());
+            expectWithinAbsoluteError (after->bands[1].rmsDb - before->bands[1].rmsDb, 6.0f, 0.05f);
+            expectWithinAbsoluteError (after->bands[1].peakDb - before->bands[1].peakDb, 6.0f, 0.05f);
+            expectWithinAbsoluteError (after->bands[0].rmsDb, before->bands[0].rmsDb, 0.01f);
+            expect (! after->bands[3].active);
+        }
+
+        beginTest ("Named level references: save, replace, find, delete");
+        {
+            TemporaryFile temp (".xml");
+            {
+                LevelReferences refs (temp.getFile());
+                LevelReferences::Reference a;
+                a.name = "Techno";
+                a.rmsDb = { -10.0f, -14.0f, -20.0f, -30.0f };
+                refs.save (a);
+                LevelReferences::Reference b;
+                b.name = "Trap 808";
+                b.rmsDb = { -8.0f, -16.0f, -22.0f, -40.0f };
+                b.active[3] = false;
+                refs.save (b);
+                a.rmsDb[0] = -11.0f;
+                refs.save (a);                               // same name: replaced
+                expectEquals ((int) refs.getAll().size(), 2);
+            }
+            LevelReferences again (temp.getFile());          // read back from the file
+            LevelReferences::Reference r;
+            expect (again.find ("techno", r));
+            expectWithinAbsoluteError (r.rmsDb[0], -11.0f, 1.0e-4f);
+            expect (again.find ("Trap 808", r));
+            expect (! r.active[3]);
+            again.remove ("Techno");
+            expect (! again.find ("Techno", r));
+            expectEquals ((int) again.getAll().size(), 1);
         }
 
         beginTest ("Every factory preset loads");

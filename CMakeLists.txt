@@ -39,6 +39,7 @@ set(KICKDRUM_SOURCES
     Source/DSP/OutputRenderer.cpp
     Source/Browser/SampleLibrary.cpp
     Source/Browser/FolderScanner.cpp
+    Source/Browser/LevelReferences.cpp
     Source/UI/BrowserPanel.cpp
     Source/UI/Controls.cpp
     Source/UI/KickDisplays.cpp
