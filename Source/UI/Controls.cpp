@@ -56,6 +56,6 @@ void ArrowIconButton::paintButton (Graphics& g, bool isHighlighted, bool isDown)
     else
         arrow.addTriangle (b.getRight(), b.getY(), b.getX(), b.getCentreY(), b.getRight(), b.getBottom());
 
-    g.setColour (Colour (0xffdfe3e6).withMultipliedAlpha (isEnabled() ? 1.0f : 0.4f));
+    g.setColour (VirusColours::buttonText.withMultipliedAlpha (isEnabled() ? 1.0f : 0.4f));
     g.fillPath (arrow);
 }

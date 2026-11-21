@@ -1,6 +1,6 @@
 # KickDrum
 
-A kick drum instrument (VST3, Windows x64) in the Virus Delay family look. Load a kick, and it is
+A kick drum instrument (VST3, Windows x64) in the Virus Delay family layout, with the LeadVerb colours (black, orange accent, light grey text). Load a kick, and it is
 split into four **linear-phase** bands, each with its own envelope, display and (optionally) its own
 sample. A tuned tail extends the kick in a key, and an FX section adds saturation and a clean
 compressor.

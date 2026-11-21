@@ -8,7 +8,8 @@ namespace kd::ui
 {
     Colour bandColour (int band)
     {
-        static const Colour colours[] { Colour (0xff3fa9ff), Colour (0xff3fe0c8), Colour (0xffffc04a), Colour (0xffd38cff) };
+        // four shades of the palette, so the bands stay apart with orange as the only accent
+        static const Colour colours[] { VirusColours::accent, VirusColours::accentLight, VirusColours::lightGrey, Colours::white };
         return colours[jlimit (0, 3, band)];
     }
 
@@ -20,7 +21,7 @@ namespace kd::ui
         }
 
         void drawScreenText (Graphics& g, const String& text, Rectangle<float> area, Justification j,
-                             float size = 11.0f, Colour colour = Colours::white)
+                             float size = 11.0f, Colour colour = VirusColours::lightGrey)
         {
             g.setFont (CustomLookAndFeel::uiFont (size, true));
             g.setColour (Colours::black.withAlpha (0.35f));
@@ -197,12 +198,12 @@ namespace kd::ui
             // bright inside the Start / End region, dim outside (as in ArpSampler)
             g.saveState();
             g.reduceClipRegion (Rectangle<float> (xs, b.getY(), xe - xs, b.getHeight()).toNearestInt());
-            g.setColour (Colours::white.withAlpha (0.92f));
+            g.setColour (VirusColours::accent);
             g.fillPath (wave);
             g.restoreState();
             g.saveState();
             g.excludeClipRegion (Rectangle<float> (xs, b.getY(), xe - xs, b.getHeight()).toNearestInt());
-            g.setColour (Colours::white.withAlpha (0.3f));
+            g.setColour (VirusColours::lightGrey.withAlpha (0.3f));
             g.fillPath (wave);
             g.restoreState();
             g.setColour (Colours::black.withAlpha (0.25f));
@@ -219,7 +220,7 @@ namespace kd::ui
                 if (pos <= 1.0)
                 {
                     const float x = inner.getX() + (float) pos * inner.getWidth();
-                    g.setColour (VirusColours::red);
+                    g.setColour (Colours::white);
                     g.fillRect (x - 0.75f, inner.getY(), 1.5f, inner.getHeight());
                 }
             }
@@ -230,7 +231,7 @@ namespace kd::ui
         {
             auto drawHandle = [&] (float x, bool isStart, bool highlighted)
             {
-                g.setColour (highlighted ? VirusColours::red : Colours::white);
+                g.setColour (highlighted ? VirusColours::accent : Colours::white);
                 g.drawLine (x, inner.getY() - 2.0f, x, b.getBottom() - 2.0f, highlighted ? 2.0f : 1.5f);
                 Path flag;
                 const float y = inner.getY() - 2.0f, w = isStart ? 8.0f : -8.0f;
@@ -246,7 +247,7 @@ namespace kd::ui
         if (info.global.missing)  name << "  (FILE NOT FOUND)";
         if (info.global.error)    name << "  (CAN'T READ FILE)";
         drawScreenText (g, name, header.withTrimmedRight (header.getWidth() * 0.45f), Justification::centredLeft, 12.0f,
-                        info.global.missing || info.global.error ? Colour (0xffffb0a8) : Colours::white);
+                        info.global.missing || info.global.error ? VirusColours::red : VirusColours::lightGrey);
 
         String right = pitchText (info.pitch);
         if (info.global.seconds > 0.0)
@@ -258,7 +259,7 @@ namespace kd::ui
         }
         if (info.loading)
             right = "SPLITTING...    " + right;
-        drawScreenText (g, right, header, Justification::centredRight, 11.0f);
+        drawScreenText (g, right, header, Justification::centredRight, 11.0f, VirusColours::accent);
 
         if (dragHover)
             drawDropHighlight (g, b);
@@ -428,7 +429,7 @@ namespace kd::ui
         drawScreenText (g, "CROSSOVER  " + formatHz (s.freqs[0]) + "  |  " + formatHz (s.freqs[1]) + "  |  " + formatHz (s.freqs[2]),
                         header, Justification::centredLeft, 10.5f);
         drawScreenText (g, getSlopeNames()[slopeIndex].toUpperCase() + "  LINEAR PHASE", header, Justification::centredRight, 10.0f,
-                        Colours::white.withAlpha (0.8f));
+                        VirusColours::accent);
     }
 
     void CrossoverDisplay::mouseMove (const MouseEvent& e)
@@ -585,9 +586,9 @@ namespace kd::ui
                     shaped.addRectangle (inner.getX() + (float) x, mid - hi * halfH, 1.0f, jmax (1.0f, (hi - lo) * halfH));
             }
 
-            g.setColour (Colours::white.withAlpha (0.18f));
+            g.setColour (VirusColours::lightGrey.withAlpha (0.18f));
             g.fillPath (raw);
-            g.setColour (Colours::white.withAlpha (state.enabled ? 0.95f : 0.5f));
+            g.setColour (VirusColours::accent.withAlpha (state.enabled ? 1.0f : 0.5f));
             g.fillPath (shaped);
 
             // the tuned tail, as a filled sine envelope from the hand-over point
@@ -613,11 +614,11 @@ namespace kd::ui
                     tail.addRectangle (inner.getX() + (float) x, mid - a * halfH, 1.0f, jmax (1.0f, 2.0f * a * halfH));
                     started = true;
                 }
-                g.setColour (Colour (0xff9fe0ff).withAlpha (0.55f));
+                g.setColour (VirusColours::accentLight.withAlpha (0.55f));
                 g.fillPath (tail);
 
                 const float tx = xForT (state.tailStart);
-                g.setColour (Colour (0xff9fe0ff));
+                g.setColour (VirusColours::accentLight);
                 g.drawVerticalLine ((int) tx, inner.getY(), inner.getBottom());
             }
         }
@@ -649,21 +650,21 @@ namespace kd::ui
         // playhead
         if (playhead >= 0.0 && playhead <= span && state.enabled)
         {
-            g.setColour (VirusColours::red);
+            g.setColour (Colours::white);
             g.fillRect (xForT (playhead) - 0.75f, inner.getY(), 1.5f, inner.getHeight());
         }
 
         // labels
         const StringArray names { "SUB", "BODY", "CLICK", "AIR" };
         drawScreenText (g, String (band + 1) + "  " + names[band], header, Justification::centredLeft, 10.5f);
-        drawScreenText (g, state.rangeText, header, Justification::centredRight, 10.0f, Colours::white.withAlpha (0.85f));
-        drawScreenText (g, state.lengthText, footer, Justification::centredRight, 9.5f, Colours::white.withAlpha (0.85f));
+        drawScreenText (g, state.rangeText, header, Justification::centredRight, 10.0f, VirusColours::accent);
+        drawScreenText (g, state.lengthText, footer, Justification::centredRight, 9.5f, VirusColours::accent);
         if (state.tailOn && state.tailText.isNotEmpty())
-            drawScreenText (g, state.tailText, footer, Justification::centredLeft, 9.5f, Colour (0xff9fe0ff));
+            drawScreenText (g, state.tailText, footer, Justification::centredLeft, 9.5f, VirusColours::accentLight);
         if (! state.enabled)
-            drawScreenText (g, "MUTED", inner, Justification::centred, 12.0f, Colours::white.withAlpha (0.6f));
+            drawScreenText (g, "MUTED", inner, Justification::centred, 12.0f, VirusColours::lightGrey.withAlpha (0.6f));
         if (state.inverted)
-            drawScreenText (g, "PHASE INVERTED", header.withTrimmedLeft (60.0f), Justification::centredLeft, 9.5f, Colour (0xffffc04a));
+            drawScreenText (g, "PHASE INVERTED", header.withTrimmedLeft (60.0f), Justification::centredLeft, 9.5f, VirusColours::accent);
 
         if (dragHover)
             drawDropHighlight (g, b);
@@ -820,7 +821,7 @@ namespace kd::ui
             const Rectangle<float> r (inner.getX() + c * colW, top, colW, jmax (1.0f / scale, bottom - top));
             (hi > 1.0f || lo < -1.0f ? clipped : wave).addWithoutMerging (r);
         }
-        g.setColour (Colours::white.withAlpha (0.95f));
+        g.setColour (VirusColours::accent);
         g.fillRectList (wave);
         g.setColour (VirusColours::red);
         g.fillRectList (clipped);
@@ -829,14 +830,14 @@ namespace kd::ui
         if (hit->endSeconds > 0.0 && hit->endSeconds < span)
         {
             const float x = xForT (hit->endSeconds);
-            g.setColour (Colour (0xff9fe0ff));
+            g.setColour (VirusColours::accentLight);
             for (float y = inner.getY(); y < inner.getBottom(); y += 5.0f)
                 g.fillRect (x - 0.5f, y, 1.0f, 3.0f);
         }
 
         if (playhead >= 0.0 && playhead <= span)
         {
-            g.setColour (VirusColours::red);
+            g.setColour (Colours::white);
             g.fillRect (xForT (playhead) - 0.75f, inner.getY(), 1.5f, inner.getHeight());
         }
 
@@ -848,7 +849,7 @@ namespace kd::ui
                                + "      PEAK " + formatDb (Decibels::gainToDecibels (hit->peak, -60.0f))
                                + "      " + String (bpm, 1) + " BPM",
                         header, Justification::centredRight, 10.5f,
-                        hit->peak > 1.0f ? Colour (0xffffb0a8) : Colours::white);
+                        hit->peak > 1.0f ? VirusColours::red : VirusColours::accent);
     }
 
     //==============================================================================
@@ -862,7 +863,7 @@ namespace kd::ui
         setColour (Label::textColourId, Colours::white);
         setColour (Label::textWhenEditingColourId, Colours::white);
         setColour (Label::backgroundWhenEditingColourId, VirusColours::lcdBottom);
-        setColour (Label::outlineWhenEditingColourId, VirusColours::blue);
+        setColour (Label::outlineWhenEditingColourId, VirusColours::accent);
         setTooltip ("Click and type a crossover frequency, e.g. 120, 1.5k or 10 kHz. Enter to apply");
         setMouseCursor (MouseCursor::IBeamCursor);
         attachment.sendInitialUpdate();
@@ -872,7 +873,7 @@ namespace kd::ui
     {
         auto* ed = Label::createEditorComponent();
         ed->setJustification (Justification::centred);
-        ed->setColour (TextEditor::highlightColourId, VirusColours::blueGlow.withAlpha (0.6f));
+        ed->setColour (TextEditor::highlightColourId, VirusColours::accentGlow.withAlpha (0.6f));
         ed->setColour (CaretComponent::caretColourId, Colours::white);
         ed->setInputRestrictions (12, "0123456789.,kKhHzZ ");
         ed->setText (String (value, value >= 1000.0f ? 0 : 1).trimCharactersAtEnd ("0").trimCharactersAtEnd ("."), false);
@@ -901,7 +902,7 @@ namespace kd::ui
             return;
         auto b = getLocalBounds().toFloat().reduced (1.0f);
         CustomLookAndFeel::drawLcd (g, b, false);
-        drawScreenText (g, formatHz (value), b, Justification::centred, 12.0f);
+        drawScreenText (g, formatHz (value), b, Justification::centred, 12.0f, VirusColours::accent);
     }
 
     //==============================================================================
@@ -939,8 +940,9 @@ namespace kd::ui
         g.fillRect (bar);
         if (level.active)
         {
-            g.setColour (bandColour (band));
-            g.fillRect (bar.withRight (xForDb (level.rmsDb)));
+            const auto fill = bar.withRight (xForDb (level.rmsDb));
+            g.setGradientFill (ColourGradient (VirusColours::buttonOnTop, 0.0f, fill.getY(), VirusColours::buttonOnBottom, 0.0f, fill.getBottom(), false));
+            g.fillRect (fill);
         }
         if (hasRef && refActive)
         {
@@ -970,7 +972,7 @@ namespace kd::ui
         {
             const float diff = level.rmsDb - refRms;
             const bool close = std::abs (diff) < 0.5f;
-            g.setColour (close ? Colour (0xff8ff0b0) : Colour (0xffffc04a));
+            g.setColour (close ? Colours::white : VirusColours::accent);
             g.drawText ("REF " + String (diff > 0.0f ? "+" : "") + String (diff, 1) + " dB", inner, Justification::centredRight);
         }
         else if (hasRef)
@@ -1014,9 +1016,9 @@ namespace kd::ui
             if (i == 0) { curve.startNewSubPath (px, py); clean.startNewSubPath (px, cy); }
             else        { curve.lineTo (px, py); clean.lineTo (px, cy); }
         }
-        g.setColour (Colours::white.withAlpha (0.25f));
+        g.setColour (VirusColours::lightGrey.withAlpha (0.25f));
         g.strokePath (clean, PathStrokeType (1.0f));
-        g.setColour (Colours::white.withAlpha (on ? 1.0f : 0.5f));
+        g.setColour (VirusColours::accent.withAlpha (on ? 1.0f : 0.5f));
         g.strokePath (curve, PathStrokeType (1.8f, PathStrokeType::curved, PathStrokeType::rounded));
 
         drawScreenText (g, getSatTypeNames()[type].toUpperCase(), b.reduced (7.0f, 3.0f).withHeight (13.0f),
@@ -1047,7 +1049,7 @@ namespace kd::ui
         if (active && norm > 0.0f)
         {
             auto fill = bar.withWidth (bar.getWidth() * norm);
-            g.setGradientFill (ColourGradient (VirusColours::blue, fill.getX(), 0.0f, VirusColours::red, bar.getRight(), 0.0f, false));
+            g.setGradientFill (ColourGradient (VirusColours::buttonOnTop, 0.0f, fill.getY(), VirusColours::buttonOnBottom, 0.0f, fill.getBottom(), false));
             g.fillRect (fill);
         }
 

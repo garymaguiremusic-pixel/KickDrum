@@ -45,7 +45,7 @@ void VirusKnob::paint (Graphics& g)
         if (showValue)
         {
             g.setFont (CustomLookAndFeel::uiFont (11.0f, true));
-            g.setColour (VirusColours::blue);
+            g.setColour (VirusColours::accent);
             g.drawFittedText (getValueText(), labelArea.toNearestInt(), Justification::centred, 1, 0.7f);
         }
         else
@@ -155,9 +155,9 @@ void VirusKnob::showValueEditor()
     ed.setJustification (Justification::centred);
     ed.setColour (TextEditor::backgroundColourId, VirusColours::lcdBottom);
     ed.setColour (TextEditor::textColourId, Colours::white);
-    ed.setColour (TextEditor::outlineColourId, VirusColours::blue);
+    ed.setColour (TextEditor::outlineColourId, VirusColours::accent);
     ed.setColour (TextEditor::focusedOutlineColourId, Colours::white);
-    ed.setColour (TextEditor::highlightColourId, VirusColours::blueGlow.withAlpha (0.7f));
+    ed.setColour (TextEditor::highlightColourId, VirusColours::accentGlow.withAlpha (0.7f));
     ed.setColour (CaretComponent::caretColourId, Colours::white);
     ed.setIndents (2, 3);
     ed.setText (getValueText().upToFirstOccurrenceOf ("  (", false, false), false);
@@ -274,7 +274,8 @@ void LcdDisplay::paint (Graphics& g)
     auto b = getLocalBounds().toFloat().reduced (1.0f);
     CustomLookAndFeel::drawLcd (g, b, dimmed);
 
-    const auto textColour = dimmed ? Colour (0xff8a9097) : Colours::white;
+    const auto textColour = dimmed ? VirusColours::dimText : VirusColours::lightGrey;   // name
+    const auto valueColour = dimmed ? VirusColours::dimText : VirusColours::accent;    // value
     auto textArea = b.reduced (6.0f, 0.0f);
 
     g.setFont (CustomLookAndFeel::uiFont (11.0f, true));
@@ -283,6 +284,7 @@ void LcdDisplay::paint (Graphics& g)
     g.drawText (valueText, textArea.translated (0.0f, 1.0f), Justification::centredRight);
     g.setColour (textColour);
     g.drawText (nameText, textArea, Justification::centredLeft);
+    g.setColour (valueColour);
     g.drawText (valueText, textArea, Justification::centredRight);
 }
 
@@ -316,7 +318,7 @@ void TempoField::paint (Graphics& g)
     CustomLookAndFeel::drawInsetBox (g, b);
 
     auto tag = b.removeFromLeft (38.0f).reduced (3.0f);
-    g.setColour (hostTempo ? Colour (0xff2a6fb8) : Colour (0xff4b5056));
+    g.setColour (hostTempo ? VirusColours::popupHighlight : Colour (0xff3a3a3d));
     g.fillRoundedRectangle (tag, 2.0f);
     g.setColour (Colours::white);
     g.setFont (CustomLookAndFeel::uiFont (9.5f, true));
@@ -367,8 +369,8 @@ void HelpButton::paintButton (Graphics& g, bool isHighlighted, bool isDown)
     auto b = getLocalBounds().toFloat().reduced (1.0f);
     g.setColour (Colours::black.withAlpha (0.6f));
     g.fillEllipse (b.translated (0.0f, 1.0f));
-    g.setGradientFill (ColourGradient (isHighlighted ? Colour (0xff8a9096) : Colour (0xff6f757b), 0.0f, b.getY(),
-                                       Colour (0xff35393d), 0.0f, b.getBottom(), false));
+    g.setGradientFill (ColourGradient (isHighlighted ? VirusColours::buttonOffTop.brighter (0.12f) : VirusColours::buttonOffTop, 0.0f, b.getY(),
+                                       VirusColours::buttonOffBottom, 0.0f, b.getBottom(), false));
     g.fillEllipse (isDown ? b.reduced (0.5f) : b);
     g.setColour (VirusColours::bevelDark);
     g.drawEllipse (b, 1.0f);

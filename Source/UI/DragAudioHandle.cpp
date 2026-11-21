@@ -17,8 +17,9 @@ void DragAudioHandle::paint (Graphics& g)
 
     g.setColour (Colours::black.withAlpha (0.5f));
     g.fillRoundedRectangle (b.translated (0.0f, 1.0f), 3.0f);
-    g.setGradientFill (ColourGradient (lit ? Colour (0xff3a95f0) : Colour (0xff2f86e0), 0.0f, b.getY(),
-                                       lit ? Colour (0xff1d5fa6) : Colour (0xff15508f), 0.0f, b.getBottom(), false));
+    const auto top = lit ? VirusColours::buttonOnTop.brighter (0.12f) : VirusColours::buttonOnTop;
+    const auto bottom = lit ? VirusColours::buttonOnBottom.brighter (0.12f) : VirusColours::buttonOnBottom;
+    g.setGradientFill (ColourGradient (top, 0.0f, b.getY(), bottom, 0.0f, b.getBottom(), false));
     g.fillRoundedRectangle (b, 3.0f);
     g.setColour (Colours::white.withAlpha (0.18f));
     g.drawHorizontalLine ((int) b.getY() + 1, b.getX() + 3.0f, b.getRight() - 3.0f);

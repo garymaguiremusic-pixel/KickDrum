@@ -22,9 +22,9 @@ void StarButton::paintButton (Graphics& g, bool isHighlighted, bool isDown)
 
     if (on)
     {
-        g.setColour (VirusColours::blueGlow.withAlpha (0.4f));
+        g.setColour (VirusColours::accentGlow.withAlpha (0.4f));
         g.strokePath (star, PathStrokeType (3.0f, PathStrokeType::curved, PathStrokeType::rounded));
-        g.setColour (VirusColours::blue);
+        g.setColour (VirusColours::accent);
         g.fillPath (star);
     }
     g.setColour ((on ? Colours::white : VirusColours::labelText).withAlpha (isHighlighted || isDown ? 1.0f : 0.8f));
@@ -39,7 +39,7 @@ namespace
         list.setColour (ListBox::backgroundColourId, Colours::transparentBlack);
         list.setColour (ListBox::outlineColourId, Colours::transparentBlack);
         list.setRowHeight (22);
-        list.getVerticalScrollBar().setColour (ScrollBar::thumbColourId, VirusColours::blue.withAlpha (0.6f));
+        list.getVerticalScrollBar().setColour (ScrollBar::thumbColourId, VirusColours::accent.withAlpha (0.6f));
     }
 
     void styleEditor (TextEditor& ed, const String& hint)
@@ -48,8 +48,8 @@ namespace
         ed.setColour (TextEditor::backgroundColourId, VirusColours::insetBottom);
         ed.setColour (TextEditor::textColourId, Colours::white);
         ed.setColour (TextEditor::outlineColourId, VirusColours::bevelDark);
-        ed.setColour (TextEditor::focusedOutlineColourId, VirusColours::blue);
-        ed.setColour (TextEditor::highlightColourId, VirusColours::blueGlow.withAlpha (0.6f));
+        ed.setColour (TextEditor::focusedOutlineColourId, VirusColours::accent);
+        ed.setColour (TextEditor::highlightColourId, VirusColours::accentGlow.withAlpha (0.6f));
         ed.setColour (CaretComponent::caretColourId, Colours::white);
         ed.setTextToShowWhenEmpty (hint, VirusColours::labelText.withAlpha (0.6f));
         ed.setIndents (6, 5);
@@ -59,7 +59,7 @@ namespace
     {
         if (selected)
         {
-            g.setColour (Colour (0xff2a6fb8));
+            g.setColour (VirusColours::popupHighlight);
             g.fillRect (0, 0, width, height);
         }
         else if (row % 2 == 1)
@@ -91,7 +91,7 @@ public:
 
         if (row == 0)
         {
-            g.setColour (selected ? Colours::white : VirusColours::blue);
+            g.setColour (selected ? Colours::white : VirusColours::accent);
             g.fillPath (makeStarPath (r.removeFromLeft (16.0f).reduced (0.0f, 4.0f)));
             r.removeFromLeft (6.0f);
             g.setColour (Colours::white);
@@ -105,7 +105,7 @@ public:
         }
 
         const auto folder = panel.library.getFolders()[row - 2];
-        g.setColour (folder.isDirectory() ? Colours::white : Colour (0xffffb0a8));
+        g.setColour (folder.isDirectory() ? Colours::white : VirusColours::red);
         g.drawText (folder.getFileName().isEmpty() ? folder.getFullPathName() : folder.getFileName(), r, Justification::centredLeft, true);
     }
 
@@ -203,7 +203,7 @@ public:
         {
             const bool up = row < panel.numUpRows();
             const auto icon = r.removeFromLeft ((float) starWidth).reduced (5.0f, 5.0f);
-            g.setColour (selected ? Colours::white : VirusColours::blue);
+            g.setColour (selected ? Colours::white : VirusColours::accent);
             if (up)
             {
                 Path arrow;
@@ -239,7 +239,7 @@ public:
         const auto star = makeStarPath (r.removeFromLeft ((float) starWidth).reduced (6.0f, 4.0f));
         if (panel.library.isFavourite (file))
         {
-            g.setColour (selected ? Colours::white : VirusColours::blue);
+            g.setColour (selected ? Colours::white : VirusColours::accent);
             g.fillPath (star);
         }
         else
@@ -254,11 +254,11 @@ public:
         const auto tagsArea = r.removeFromRight (jmin (220.0f, r.getWidth() * 0.35f));
 
         g.setFont (CustomLookAndFeel::uiFont (12.5f, current));
-        g.setColour (! exists ? Colour (0xffffb0a8) : (current && ! selected ? VirusColours::blue : Colours::white));
+        g.setColour (! exists ? VirusColours::red : (current && ! selected ? VirusColours::accent : Colours::white));
         g.drawText (file.getFileName() + (exists ? "" : "  (missing)"), r.reduced (2.0f, 0.0f), Justification::centredLeft, true);
 
         g.setFont (CustomLookAndFeel::uiFont (11.0f));
-        g.setColour (selected ? Colours::white.withAlpha (0.85f) : Colour (0xff8fd0ff));
+        g.setColour (selected ? Colours::white.withAlpha (0.85f) : VirusColours::accentLight);
         g.drawText (tags.joinIntoString ("  "), tagsArea, Justification::centredLeft, true);
 
         // the containing folder only says something new in search results and favourites
@@ -804,7 +804,7 @@ void BrowserPanel::paint (Graphics& g)
 
     // where we are
     g.setFont (CustomLookAndFeel::uiFont (12.5f, true));
-    g.setColour (VirusColours::blue);
+    g.setColour (VirusColours::accent);
     g.drawText (locationText(), locationBounds, Justification::centredLeft, true);
 
     // status

@@ -11,7 +11,7 @@ namespace kd::ui
     juce::Colour bandColour (int band);
 
     //==============================================================================
-    /** Base for the blue LCD displays that accept dropped audio files. */
+    /** Base for the LCD displays that accept dropped audio files. */
     class DropTarget : public juce::FileDragAndDropTarget
     {
     public:

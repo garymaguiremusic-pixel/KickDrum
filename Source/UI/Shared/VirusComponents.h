@@ -75,7 +75,7 @@ private:
 };
 
 //==============================================================================
-/** Blue LCD readout, e.g. "TIME      96". */
+/** LCD readout (black glass), e.g. "TIME      96": name in light grey, value in orange. */
 class LcdDisplay : public juce::Component,
                    public juce::SettableTooltipClient
 {

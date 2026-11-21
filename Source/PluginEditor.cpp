@@ -902,11 +902,13 @@ void KickDrumAudioProcessorEditor::Content::paint (Graphics& g)
 
     g.setColour (VirusColours::bevelDark);
     g.drawHorizontalLine ((int) compPanel.getY() + 160, compPanel.getX() + 108.0f, compPanel.getRight() - 8.0f);
+    g.setColour (Colours::white.withAlpha (0.07f));
+    g.drawHorizontalLine ((int) compPanel.getY() + 161, compPanel.getX() + 108.0f, compPanel.getRight() - 8.0f);
 }
 
 void KickDrumAudioProcessorEditor::Content::drawBackground (Graphics& g, Rectangle<float> b)
 {
-    g.setGradientFill (ColourGradient (Colour (0xff3b3e42), 0.0f, 0.0f, Colour (0xff1e2023), 0.0f, b.getBottom(), false));
+    g.setGradientFill (ColourGradient (Colour (0xff1a1a1c), 0.0f, 0.0f, Colour (0xff070708), 0.0f, b.getBottom(), false));
     g.fillRect (b);
 
     // brushed metal: random short streaks (drawn as vectors so they scale cleanly)
@@ -924,7 +926,10 @@ void KickDrumAudioProcessorEditor::Content::drawBackground (Graphics& g, Rectang
     g.setGradientFill (vignette);
     g.fillRect (b);
 
-    // separator under the top bar
+    // top strip (logo, presets, buttons), with a black line along its bottom edge
+    const auto strip = b.withHeight (46.0f);
+    g.setGradientFill (ColourGradient (Colour (0xff222224), 0.0f, strip.getY(), Colour (0xff111112), 0.0f, strip.getBottom(), false));
+    g.fillRect (strip);
     g.setColour (VirusColours::bevelDark);
     g.drawHorizontalLine (46, 0.0f, b.getWidth());
     g.setColour (Colours::white.withAlpha (0.06f));
@@ -933,7 +938,7 @@ void KickDrumAudioProcessorEditor::Content::drawBackground (Graphics& g, Rectang
 
 void KickDrumAudioProcessorEditor::Content::drawWordmark (Graphics& g, Rectangle<float> area)
 {
-    // Same family wordmark as Virus Delay: chrome first word, blue second word, swoosh.
+    // Same family wordmark as Virus Delay / LeadVerb: chrome first word, orange second word, swoosh.
     const float baseline = area.getBottom() - 9.0f;
 
     GlyphArrangement main;
@@ -956,7 +961,7 @@ void KickDrumAudioProcessorEditor::Content::drawWordmark (Graphics& g, Rectangle
     second.createPath (secondPath);
     g.setColour (Colours::black.withAlpha (0.5f));
     g.fillPath (secondPath, AffineTransform::translation (1.0f, 1.0f));
-    g.setColour (VirusColours::blue);
+    g.setColour (VirusColours::accent);
     g.fillPath (secondPath);
 
     Path swoosh;
@@ -964,6 +969,6 @@ void KickDrumAudioProcessorEditor::Content::drawWordmark (Graphics& g, Rectangle
     const float ex = secondPath.getBounds().getRight();
     swoosh.startNewSubPath (sx, sy);
     swoosh.quadraticTo ((sx + ex) * 0.5f, sy + 3.5f, ex + 6.0f, sy - 2.0f);
-    g.setGradientFill (ColourGradient (VirusColours::blue.withAlpha (0.0f), sx, sy, VirusColours::blue, ex, sy, false));
+    g.setGradientFill (ColourGradient (VirusColours::accent.withAlpha (0.0f), sx, sy, VirusColours::accent, ex, sy, false));
     g.strokePath (swoosh, PathStrokeType (1.6f, PathStrokeType::curved, PathStrokeType::rounded));
 }
