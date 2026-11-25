@@ -20,7 +20,7 @@ class KickDrumAudioProcessorEditor : public juce::AudioProcessorEditor,
                                      private juce::Timer
 {
 public:
-    static constexpr int kBaseWidth = 1100, kBaseHeight = 912;
+    static constexpr int kBaseWidth = 1180, kBaseHeight = 830;
 
     explicit KickDrumAudioProcessorEditor (KickDrumAudioProcessor&);
     ~KickDrumAudioProcessorEditor() override;
@@ -29,7 +29,7 @@ public:
 
 private:
     //==============================================================================
-    /** The controls of one band: display, mini browser, envelope and level. */
+    /** The controls of one band page: big display, level strip, mini browser, envelope and level. */
     struct BandControls
     {
         BandControls (KickDrumAudioProcessor&, int band);
@@ -41,16 +41,19 @@ private:
         StarButton star;
         ArrowIconButton back { false }, next { true };
         juce::TextButton browse { "Browse" }, useMain { "Use Main" };
-        VirusKnob attack { VirusKnob::Size::Small, "Attack" };
-        VirusKnob length { VirusKnob::Size::Small, "Length" };
-        VirusKnob decay  { VirusKnob::Size::Small, "Decay" };
-        VirusKnob curve  { VirusKnob::Size::Small, "Curve" };
-        VirusKnob fade   { VirusKnob::Size::Small, "Fade" };
-        VirusKnob level  { VirusKnob::Size::Small, "Level" };
+        VirusKnob attack { VirusKnob::Size::Large, "Attack" };
+        VirusKnob length { VirusKnob::Size::Large, "Length" };
+        VirusKnob decay  { VirusKnob::Size::Large, "Decay" };
+        VirusKnob curve  { VirusKnob::Size::Large, "Curve" };
+        VirusKnob fade   { VirusKnob::Size::Large, "Fade" };
+        VirusKnob level  { VirusKnob::Size::Large, "Level" };
+        std::array<LcdDisplay, 6> valueLcds;     // the knobs' values
+
+        std::array<VirusKnob*, 6> knobs()        { return { &attack, &length, &decay, &curve, &fade, &level }; }
+        std::vector<juce::Component*> components();
         SegmentedButtons attackModeButtons, modeButtons;
         juce::ComboBox attackSyncBox, syncBox;
         juce::TextButton mute { "M" }, solo { "S" }, phase { "Phase" };
-        juce::Rectangle<float> panel;
     };
 
     class Content : public juce::Component,
@@ -72,6 +75,7 @@ private:
         void setupBand (BandControls&);
         void browseForFile();
         void showBrowser (int index);       // -1 = none, 0..3 = a band, kGlobalBrowser = main
+        void showPage (int band);           // the band shown in the big window
         void matchTailKeyToKick();
         static void drawWordmark (juce::Graphics&, juce::Rectangle<float> area);
         static void drawBackground (juce::Graphics&, juce::Rectangle<float> area);
@@ -100,7 +104,7 @@ private:
         // Band-level references (named, stored per computer)
         juce::SharedResourcePointer<LevelReferences> references;
         juce::ComboBox refBox;
-        juce::TextButton saveRefButton { "Save Ref..." }, deleteRefButton { "Delete" }, matchLevelsButton { "Match Levels" };
+        juce::TextButton saveRefButton { "Save" }, deleteRefButton { "Del" }, matchLevelsButton { "Match" };
         void changeListenerCallback (juce::ChangeBroadcaster*) override;
         void refreshReferenceList();
         void updateLevelStrips();
@@ -112,7 +116,8 @@ private:
         juce::File exportAudio();      // renders the current kick to a WAV for Drag Audio Out
         DragAudioHandle dragAudio;
 
-        // Bands
+        // Bands: four pages in the big window
+        kd::ui::BandTabs tabs;
         std::array<std::unique_ptr<BandControls>, kd::kNumBands> bands;
 
         // Tail
@@ -128,7 +133,7 @@ private:
         LcdDisplay keyLcd, detectLcd;
 
         // Saturation
-        juce::TextButton satOnButton { "On" };
+        juce::TextButton satOnButton { "On" }, satOversampleButton { "4x OS" };
         juce::ComboBox satTypeBox;
         VirusKnob driveKnob    { VirusKnob::Size::Large, "Drive" };
         VirusKnob toneKnob     { VirusKnob::Size::Small, "Tone" };
@@ -167,7 +172,8 @@ private:
         std::vector<std::unique_ptr<KnobAttachment>> knobAttachments;
         std::vector<std::unique_ptr<ButtonAttachment>> buttonAttachments;
 
-        juce::Rectangle<float> tailPanel, satPanel, compPanel, masterPanel;
+        juce::Rectangle<float> kickPanel, xoverPanel, tailPanel, outputPanel, masterPanel, satPanel, compPanel,
+                               bigWindow, bandPanel;
     };
 
     //==============================================================================

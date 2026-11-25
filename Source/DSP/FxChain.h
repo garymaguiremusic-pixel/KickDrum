@@ -13,6 +13,7 @@ namespace kd
         float tone = 1.0f;         // 0 = dark .. 1 = open
         float mix = 1.0f;          // 0..1
         float levelDb = 0.0f;      // wet level
+        bool oversample = true;    // 4x oversampling (off = at the host rate, lighter on the CPU, more aliasing)
     };
 
     struct CompressorSettings

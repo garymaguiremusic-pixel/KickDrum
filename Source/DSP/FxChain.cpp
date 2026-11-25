@@ -72,6 +72,7 @@ namespace kd
             toneState[ch] = dcX[ch] = dcY[ch] = 0.0f;
         compEnvDb = 0.0f;
         gainReduction = 0.0f;
+        driveSmooth.setCurrentAndTargetValue (1.0f);
     }
 
     void FxChain::process (AudioBuffer<float>& buffer, const SaturationSettings& sat, const CompressorSettings& comp) noexcept
@@ -119,9 +120,16 @@ namespace kd
         const int chans = jmin (channels, buffer.getNumChannels());
 
         dsp::AudioBlock<float> block (buffer.getArrayOfWritePointers(), (size_t) chans, (size_t) num);
-        auto up = oversampling->processSamplesUp (block);
 
-        const double osRate = sampleRate * 4.0;
+        // Oversampling off: saturate the delayed dry signal at the host rate, so the latency
+        // (and the timing of the kick) stays exactly the same either way.
+        if (! s.oversample)
+            for (int ch = 0; ch < chans; ++ch)
+                buffer.copyFrom (ch, 0, dryCopy, ch, 0, num);
+
+        auto up = s.oversample ? oversampling->processSamplesUp (block) : block;
+
+        const double osRate = s.oversample ? sampleRate * 4.0 : sampleRate;
         const float toneHz = 1000.0f * std::pow (20.0f, s.tone);
         const bool toneOn = s.tone < 0.995f;
         const float toneCoef = 1.0f - std::exp (-MathConstants<float>::twoPi * toneHz / (float) osRate);
@@ -133,6 +141,9 @@ namespace kd
 
         for (int i = 0; i < upNum; ++i)
         {
+            // the smoother is timed for the 4x rate: at the host rate it takes 4 steps per sample
+            if (! s.oversample)
+                driveSmooth.skip (3);
             const float drive = driveSmooth.getNextValue();
             for (int ch = 0; ch < chans; ++ch)
             {
@@ -156,7 +167,8 @@ namespace kd
             }
         }
 
-        oversampling->processSamplesDown (block);
+        if (s.oversample)
+            oversampling->processSamplesDown (block);
 
         mixSmooth.setTargetValue (s.mix);
         levelSmooth.setTargetValue (Decibels::decibelsToGain (s.levelDb));

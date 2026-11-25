@@ -56,6 +56,17 @@ KickDrumAudioProcessorEditor::BandControls::BandControls (KickDrumAudioProcessor
 {
 }
 
+std::vector<Component*> KickDrumAudioProcessorEditor::BandControls::components()
+{
+    std::vector<Component*> list { &view, &levelStrip, &sampleLcd, &star, &back, &next, &browse, &useMain,
+                                   &attackModeButtons, &modeButtons, &attackSyncBox, &syncBox, &mute, &solo, &phase };
+    for (auto* k : knobs())
+        list.push_back (k);
+    for (auto& l : valueLcds)
+        list.push_back (&l);
+    return list;
+}
+
 //==============================================================================
 namespace
 {
@@ -208,7 +219,9 @@ KickDrumAudioProcessorEditor::Content::Content (KickDrumAudioProcessor& p)
         outPeakLcd.setContent ("PEAK", formatDb (Decibels::gainToDecibels (hit->peak, -60.0f)));
     };
 
-    // Bands ---------------------------------------------------------------------------------
+    // Bands: one page at a time in the big window ------------------------------------------------
+    tabs.onSelect = [this] (int band) { showPage (band); };
+    addAndMakeVisible (tabs);
     for (int b = 0; b < kNumBands; ++b)
     {
         bands[(size_t) b] = std::make_unique<BandControls> (processor, b);
@@ -261,7 +274,10 @@ KickDrumAudioProcessorEditor::Content::Content (KickDrumAudioProcessor& p)
     detectLcd.setTooltip ("The pitch detected in the Sub band of the kick");
 
     // Saturation ----------------------------------------------------------------------------
-    addToggle (satOnButton, ParamIDs::satOn, "Saturation on/off (4x oversampled, linear-phase filters)");
+    addToggle (satOnButton, ParamIDs::satOn, "Saturation on/off");
+    addToggle (satOversampleButton, ParamIDs::satOversample,
+               "4x oversampling for the saturation (linear-phase filters): less aliasing, more CPU. "
+               "Off runs it at the host rate. The timing is the same either way");
     addCombo (satTypeBox, ParamIDs::satType, getSatTypeNames(), "Saturation type");
     addKnob (driveKnob, ParamIDs::satDrive, formatDb, Unit::Db);
     addKnob (toneKnob, ParamIDs::satTone, [] (float v) { return v >= 99.5f ? String ("Open") : formatHz (1000.0f * std::pow (20.0f, v * 0.01f)); });
@@ -303,6 +319,7 @@ KickDrumAudioProcessorEditor::Content::Content (KickDrumAudioProcessor& p)
     globalBrowser.onClose = [this] { showBrowser (-1); };
     addChildComponent (globalBrowser);
 
+    showPage (processor.getSelectedBand());
     showBrowser (processor.getOpenBrowser());
     updateDisplays();
 }
@@ -439,6 +456,8 @@ void KickDrumAudioProcessorEditor::Content::setupBand (BandControls& c)
     c.view.onBrowse = [this, b] { showBrowser (b); };
     addAndMakeVisible (c.view);
     addAndMakeVisible (c.levelStrip);
+    for (auto& l : c.valueLcds)
+        addAndMakeVisible (l);
 
     // mini browser
     c.sampleLcd.setTooltip ("The kick this band plays. MAIN = the main kick, OWN = this band's own sample");
@@ -505,6 +524,18 @@ void KickDrumAudioProcessorEditor::Content::browseForFile()
                                   if (const auto file = fc.getResult(); file.existsAsFile())
                                       processor.loadGlobalFromUser (file);
                               });
+}
+
+void KickDrumAudioProcessorEditor::Content::showPage (int band)
+{
+    band = jlimit (0, kNumBands - 1, band);
+    processor.setSelectedBand (band);
+    tabs.setSelected (band);
+    crossover.setSelectedBand (band);
+    for (int b = 0; b < kNumBands; ++b)
+        for (auto* c : bands[(size_t) b]->components())
+            c->setVisible (b == band);
+    repaint();      // the band panel's title
 }
 
 void KickDrumAudioProcessorEditor::Content::showBrowser (int index)
@@ -594,7 +625,17 @@ void KickDrumAudioProcessorEditor::Content::updateDisplays()
         kd::ui::BandView::State s;
         s.overview = info.bandOverviews[(size_t) b];
         s.env = env;
-        s.spanSeconds = span;
+        {
+            // each page fits its own band: the whole Length, or the sample if it ends sooner (no tail)
+            double audible = env.length();
+            if (! (b == 0 && settings.tail.on) && info.globalOverview != nullptr)
+                audible = jmin (audible, info.bands[(size_t) b].seconds * (settings.endFrac - settings.startFrac) / ratio + 0.05);
+            s.spanSeconds = jlimit (0.1, 8.0, audible * 1.05);
+        }
+        juce::ignoreUnused (span);
+        s.ghost = info.globalOverview;
+        s.beatGrid = synced;
+        s.beatSeconds = beatSeconds;
         s.ratio = ratio;
         s.startFrac = settings.startFrac;
         s.endFrac = settings.endFrac;
@@ -611,6 +652,37 @@ void KickDrumAudioProcessorEditor::Content::updateDisplays()
         s.inverted = env.invert;
         c.view.setState (s);
         c.view.setPlayhead (playhead);
+
+        {
+            auto knobs = c.knobs();
+            for (size_t k = 0; k < knobs.size(); ++k)
+            {
+                c.valueLcds[k].setContent ({}, knobs[k]->getValueText());
+                c.valueLcds[k].setDimmed (! knobs[k]->isEnabled());
+            }
+        }
+
+        // the page tab
+        {
+            kd::ui::BandTabs::Tab tab;
+            // compact range for the tab, e.g. "120 - 1k Hz"
+            auto shortHz = [] (float hz) { return hz >= 1000.0f ? String (hz / 1000.0f, hz >= 10000.0f || std::fmod (hz, 1000.0f) < 1.0f ? 0 : 1) + "k"
+                                                                : String (roundToInt (hz)); };
+            const float edges[] { 20.0f, xs.freqs[0], xs.freqs[1], xs.freqs[2] };
+            tab.range = b < 3 ? shortHz (edges[b]) + " - " + shortHz (b == 0 ? xs.freqs[0] : xs.freqs[(size_t) b]) + " Hz"
+                              : shortHz (xs.freqs[2]) + " Hz +";
+            LevelReferences::Reference ref;
+            tab.hasRef = processor.getSelectedReference().isNotEmpty() && references->find (processor.getSelectedReference(), ref)
+                         && ref.active[(size_t) b];
+            if (lastHit != nullptr)
+            {
+                tab.measured = true;
+                tab.active = lastHit->bands[(size_t) b].active;
+                tab.rmsDb = lastHit->bands[(size_t) b].rmsDb;
+                tab.refDiff = tab.rmsDb - ref.rmsDb[(size_t) b];
+            }
+            tabs.setTab (b, tab);
+        }
 
         c.length.setEnabled (! synced);
         c.syncBox.setEnabled (synced);
@@ -749,112 +821,122 @@ File KickDrumAudioProcessorEditor::Content::exportAudio()
 void KickDrumAudioProcessorEditor::Content::resized()
 {
     // Top bar
-    presetBox.setBounds (470, 10, 230, 28);
-    favouriteButton.setBounds (706, 10, 28, 28);
-    backButton.setBounds (740, 10, 28, 28);
-    nextButton.setBounds (770, 10, 28, 28);
-    browserButton.setBounds (804, 10, 90, 28);
-    loadButton.setBounds (900, 10, 98, 28);
-    playButton.setBounds (1004, 10, 84, 28);
+    presetBox.setBounds (528, 10, 250, 28);
+    favouriteButton.setBounds (784, 10, 28, 28);
+    backButton.setBounds (816, 10, 28, 28);
+    nextButton.setBounds (846, 10, 28, 28);
+    browserButton.setBounds (880, 10, 90, 28);
+    loadButton.setBounds (976, 10, 98, 28);
+    playButton.setBounds (1080, 10, 88, 28);
 
-    // Kick + crossover
-    mainWave.setBounds (12, 54, 640, 80);
-    refBox.setBounds (86, 138, 214, 24);
-    saveRefButton.setBounds (306, 138, 86, 24);
-    deleteRefButton.setBounds (396, 138, 70, 24);
-    matchLevelsButton.setBounds (472, 138, 180, 24);
-    crossover.setBounds (660, 54, 428, 80);
+    // Left column: kick, crossover, tail ---------------------------------------------------------
+    kickPanel  = { 12.0f, 54.0f, 300.0f, 168.0f };
+    xoverPanel = { 12.0f, 230.0f, 300.0f, 176.0f };
+    tailPanel  = { 12.0f, 414.0f, 300.0f, 208.0f };
+
+    mainWave.setBounds (20, 78, 284, 104);
+    refBox.setBounds (20, 188, 128, 24);
+    saveRefButton.setBounds (152, 188, 48, 24);
+    deleteRefButton.setBounds (204, 188, 40, 24);
+    matchLevelsButton.setBounds (248, 188, 56, 24);
+
+    crossover.setBounds (20, 254, 284, 92);
     for (int i = 0; i < 3; ++i)
-        xoverFields[(size_t) i]->setBounds (660 + i * 74, 138, 70, 24);
-    slopeButtons.setBounds (884, 138, 204, 24);
+        xoverFields[(size_t) i]->setBounds (20 + i * 96, 352, 92, 22);
+    slopeButtons.setBounds (70, 380, 234, 22);
 
-    // Output (bottom row, under the FX)
-    outputView.setBounds (12, 778, 900, 122);
-    outLengthLcd.setBounds (920, 812, 168, 26);
-    outPeakLcd.setBounds (920, 844, 168, 26);
-    dragAudio.setBounds (920, 874, 168, 26);
-
-    // Bands
-    for (int b = 0; b < kNumBands; ++b)
     {
-        auto& c = *bands[(size_t) b];
-        const int x = 12 + b * 271, y = 170;
-        c.panel = { (float) x, (float) y, 263.0f, 336.0f };
+        const int x = 12, y = 414;
+        tailOnButton.setBounds (x + 8, y + 26, 66, 24);
+        tuneBodyButton.setBounds (x + 78, y + 26, 74, 24);
+        keyLockButton.setBounds (x + 156, y + 26, 70, 24);
+        matchButton.setBounds (x + 230, y + 26, 62, 24);
+        keyKnob.setBounds (x + 20, y + 56, 76, 76);
+        keyLcd.setBounds (x + 10, y + 136, 94, 22);
+        tailStartModeButtons.setBounds (x + 10, y + 162, 94, 20);
+        tailStartSyncBox.setBounds (x + 10, y + 185, 94, 20);
+        rootBox.setBounds (x + 110, y + 66, 58, 22);
+        scaleBox.setBounds (x + 172, y + 66, 120, 22);
+        detectLcd.setBounds (x + 110, y + 94, 182, 22);
+        tailStartKnob.setBounds (x + 110, y + 124, 60, 76);
+        glideKnob.setBounds (x + 171, y + 124, 60, 76);
+        tailLevelKnob.setBounds (x + 232, y + 124, 60, 76);
+    }
 
-        c.view.setBounds (x + 8, y + 24, 247, 98);
-        c.levelStrip.setBounds (x + 8, y + 125, 247, 20);
-        c.sampleLcd.setBounds (x + 8, y + 148, 247, 24);
-        c.star.setBounds (x + 8, y + 175, 24, 24);
-        c.back.setBounds (x + 36, y + 175, 24, 24);
-        c.next.setBounds (x + 62, y + 175, 24, 24);
-        c.browse.setBounds (x + 90, y + 175, 80, 24);
-        c.useMain.setBounds (x + 174, y + 175, 81, 24);
+    // Centre: page tabs, the big window, the band's envelope and level ---------------------------
+    tabs.setBounds (320, 54, 540, 42);
+    bigWindow = { 320.0f, 96.0f, 540.0f, 300.0f };
+    bandPanel = { 320.0f, 404.0f, 540.0f, 218.0f };
 
-        VirusKnob* knobs[] { &c.attack, &c.length, &c.decay, &c.curve, &c.fade, &c.level };
+    for (auto& bp : bands)
+    {
+        auto& c = *bp;
+        c.view.setBounds (330, 106, 520, 230);
+        c.levelStrip.setBounds (330, 342, 520, 20);
+        c.sampleLcd.setBounds (330, 368, 250, 24);
+        c.star.setBounds (586, 368, 26, 24);
+        c.back.setBounds (616, 368, 26, 24);
+        c.next.setBounds (644, 368, 26, 24);
+        c.browse.setBounds (676, 368, 84, 24);
+        c.useMain.setBounds (764, 368, 86, 24);
+
+        const int px = 320, py = 404;
+        auto knobs = c.knobs();
         for (int k = 0; k < 6; ++k)
-            knobs[k]->setBounds (x + 6 + roundToInt (k * 41.8f), y + 204, 43, 68);
+        {
+            const int kx = px + 52 + k * 87;
+            knobs[(size_t) k]->setBounds (kx - 34, py + 26, 68, 68);
+            c.valueLcds[(size_t) k].setBounds (kx - 40, py + 114, 80, 22);
+        }
 
-        c.attackModeButtons.setBounds (x + 56, y + 278, 74, 24);
-        c.attackSyncBox.setBounds (x + 133, y + 278, 64, 24);
-        c.mute.setBounds (x + 200, y + 278, 27, 24);
-        c.solo.setBounds (x + 229, y + 278, 26, 24);
-        c.modeButtons.setBounds (x + 56, y + 306, 74, 24);
-        c.syncBox.setBounds (x + 133, y + 306, 64, 24);
-        c.phase.setBounds (x + 200, y + 306, 55, 24);
+        const int yr = py + 150;
+        c.attackModeButtons.setBounds (px + 66, yr, 88, 24);
+        c.attackSyncBox.setBounds (px + 158, yr, 64, 24);
+        c.modeButtons.setBounds (px + 290, yr, 88, 24);
+        c.syncBox.setBounds (px + 382, yr, 70, 24);
+        c.mute.setBounds (px + 458, yr, 36, 24);
+        c.solo.setBounds (px + 498, yr, 36, 24);
+        c.phase.setBounds (px + 458, yr + 30, 76, 24);
     }
 
-    // Bottom row
-    tailPanel   = { 12.0f, 514.0f, 300.0f, 256.0f };
-    satPanel    = { 320.0f, 514.0f, 300.0f, 256.0f };
-    compPanel   = { 628.0f, 514.0f, 300.0f, 256.0f };
-    masterPanel = { 936.0f, 514.0f, 152.0f, 256.0f };
+    // Right column: output, master -------------------------------------------------------------
+    outputPanel = { 868.0f, 54.0f, 300.0f, 230.0f };
+    masterPanel = { 868.0f, 292.0f, 300.0f, 330.0f };
 
+    outputView.setBounds (876, 78, 284, 120);
+    outLengthLcd.setBounds (876, 206, 140, 24);
+    outPeakLcd.setBounds (1020, 206, 140, 24);
+    dragAudio.setBounds (876, 238, 284, 28);
+
+    volumeKnob.setBounds (966, 326, 104, 104);
+    volumeLcd.setBounds (938, 446, 160, 26);
+    velKnob.setBounds (988, 486, 60, 76);
+    tempoField.setBounds (928, 576, 180, 26);
+
+    // Bottom row: saturation, compressor ---------------------------------------------------------
+    satPanel  = { 12.0f, 630.0f, 572.0f, 188.0f };
+    compPanel = { 592.0f, 630.0f, 576.0f, 188.0f };
     {
-        const int x = 12, y = 514;
-        tailOnButton.setBounds (x + 10, y + 28, 64, 26);
-        tuneBodyButton.setBounds (x + 78, y + 28, 78, 26);
-        keyLockButton.setBounds (x + 160, y + 28, 72, 26);
-        matchButton.setBounds (x + 236, y + 28, 54, 26);
-        keyKnob.setBounds (x + 14, y + 66, 84, 84);
-        keyLcd.setBounds (x + 10, y + 156, 94, 26);
-        rootBox.setBounds (x + 112, y + 82, 58, 24);
-        scaleBox.setBounds (x + 174, y + 82, 116, 24);
-        detectLcd.setBounds (x + 112, y + 124, 178, 26);
-        tailStartKnob.setBounds (x + 112, y + 168, 60, 72);
-        tailStartModeButtons.setBounds (x + 10, y + 198, 94, 22);
-        tailStartSyncBox.setBounds (x + 10, y + 224, 94, 22);
-        glideKnob.setBounds (x + 172, y + 168, 60, 72);
-        tailLevelKnob.setBounds (x + 232, y + 168, 60, 72);
+        const int x = 12, y = 630;
+        satOnButton.setBounds (x + 8, y + 26, 54, 24);
+        satTypeBox.setBounds (x + 68, y + 26, 200, 24);
+        satOversampleButton.setBounds (x + 274, y + 26, 70, 24);
+        driveKnob.setBounds (x + 20, y + 58, 84, 84);
+        driveLcd.setBounds (x + 14, y + 152, 96, 24);
+        satCurve.setBounds (x + 128, y + 60, 160, 116);
+        toneKnob.setBounds (x + 310, y + 74, 70, 80);
+        satMixKnob.setBounds (x + 390, y + 74, 70, 80);
+        satLevelKnob.setBounds (x + 470, y + 74, 70, 80);
     }
     {
-        const int x = 320, y = 514;
-        satOnButton.setBounds (x + 10, y + 28, 60, 26);
-        satTypeBox.setBounds (x + 76, y + 29, 214, 24);
-        driveKnob.setBounds (x + 14, y + 66, 84, 84);
-        driveLcd.setBounds (x + 10, y + 156, 94, 26);
-        satCurve.setBounds (x + 112, y + 64, 178, 92);
-        toneKnob.setBounds (x + 112, y + 168, 60, 72);
-        satMixKnob.setBounds (x + 172, y + 168, 60, 72);
-        satLevelKnob.setBounds (x + 232, y + 168, 60, 72);
-    }
-    {
-        const int x = 628, y = 514;
-        compOnButton.setBounds (x + 10, y + 28, 60, 26);
-        grMeter.setBounds (x + 76, y + 29, 214, 24);
-        threshKnob.setBounds (x + 14, y + 66, 84, 84);
-        threshLcd.setBounds (x + 10, y + 156, 94, 26);
-        ratioKnob.setBounds (x + 112, y + 74, 60, 72);
-        compAttackKnob.setBounds (x + 172, y + 74, 60, 72);
-        compReleaseKnob.setBounds (x + 232, y + 74, 60, 72);
-        makeupKnob.setBounds (x + 142, y + 168, 60, 72);
-        compMixKnob.setBounds (x + 202, y + 168, 60, 72);
-    }
-    {
-        const int x = 936, y = 514;
-        volumeKnob.setBounds (x + 34, y + 28, 84, 84);
-        volumeLcd.setBounds (x + 10, y + 118, 132, 26);
-        velKnob.setBounds (x + 46, y + 148, 60, 70);
-        tempoField.setBounds (x + 10, y + 222, 132, 26);
+        const int x = 592, y = 630;
+        compOnButton.setBounds (x + 8, y + 26, 54, 24);
+        grMeter.setBounds (x + 68, y + 26, 250, 24);
+        threshKnob.setBounds (x + 20, y + 58, 84, 84);
+        threshLcd.setBounds (x + 14, y + 152, 96, 24);
+        VirusKnob* knobs[] { &ratioKnob, &compAttackKnob, &compReleaseKnob, &makeupKnob, &compMixKnob };
+        for (int i = 0; i < 5; ++i)
+            knobs[i]->setBounds (x + 124 + i * 88, y + 74, 70, 80);
     }
 
     // Browser overlays cover everything below the top bar
@@ -871,39 +953,53 @@ void KickDrumAudioProcessorEditor::Content::paint (Graphics& g)
     drawBackground (g, bounds);
     drawWordmark (g, { 18.0f, 4.0f, 300.0f, 42.0f });
 
-    CustomLookAndFeel::drawSmallLabel (g, "Preset", { 400.0f, 10.0f, 64.0f, 28.0f }, Justification::centredRight);
-    CustomLookAndFeel::drawSmallLabel (g, "Level ref", { 12.0f, 138.0f, 72.0f, 24.0f }, Justification::centredLeft);
-    CustomLookAndFeel::drawSmallLabel (g, "Output  -  1/4 note", { 920.0f, 784.0f, 168.0f, 16.0f }, Justification::centredLeft);
+    CustomLookAndFeel::drawSmallLabel (g, "Preset", { 456.0f, 10.0f, 64.0f, 28.0f }, Justification::centredRight);
 
-    const auto names = getBandNames();
-    for (int b = 0; b < kNumBands; ++b)
+    CustomLookAndFeel::drawPanel (g, kickPanel, "Kick");
+    CustomLookAndFeel::drawPanel (g, xoverPanel, "Crossover  -  Linear Phase");
+    CustomLookAndFeel::drawSmallLabel (g, "Slope", { 20.0f, 380.0f, 48.0f, 22.0f }, Justification::centredLeft);
+
+    CustomLookAndFeel::drawPanel (g, tailPanel, "Tail  -  Tuned Extension");
+    CustomLookAndFeel::drawSmallLabel (g, "Root", { tailPanel.getX() + 110.0f, tailPanel.getY() + 52.0f, 58.0f, 14.0f }, Justification::centredLeft);
+    CustomLookAndFeel::drawSmallLabel (g, "Scale lock", { tailPanel.getX() + 172.0f, tailPanel.getY() + 52.0f, 120.0f, 14.0f }, Justification::centredLeft);
+
+    // the big window: a panel body without a header (the tabs sit on top of it)
     {
-        const auto& c = *bands[(size_t) b];
-        CustomLookAndFeel::drawPanel (g, c.panel, "Band " + String (b + 1) + "  -  " + names[b]);
+        const auto w = bigWindow;
+        g.setColour (VirusColours::bevelLight);
+        g.drawRoundedRectangle (w.translated (0.5f, 1.0f), 5.0f, 1.0f);
+        g.setGradientFill (ColourGradient (VirusColours::panelTop, 0.0f, w.getY(), VirusColours::panelBottom, 0.0f, w.getBottom(), false));
+        g.fillRoundedRectangle (w, 5.0f);
+        g.setColour (VirusColours::bevelDark);
+        g.drawRoundedRectangle (w, 5.0f, 1.0f);
+        // join the selected tab to the window
+        const float tabW = w.getWidth() / (float) kNumBands;
+        const int page = tabs.getSelected();
+        g.setColour (Colour (0xff2a2a2d).interpolatedWith (VirusColours::panelTop, 0.5f));
+        g.fillRect (w.getX() + page * tabW + 3.0f, w.getY() - 1.0f, tabW - 6.0f, 3.0f);
+    }
 
-        // band colour tag in the header
-        g.setColour (kd::ui::bandColour (b));
-        g.fillRoundedRectangle (c.panel.getX() + 8.0f, c.panel.getY() + 6.0f, 18.0f, 6.0f, 2.0f);
-
-        CustomLookAndFeel::drawSmallLabel (g, "Attack", { c.panel.getX() + 8.0f, c.panel.getY() + 278.0f, 50.0f, 24.0f },
+    const int page = tabs.getSelected();
+    CustomLookAndFeel::drawPanel (g, bandPanel, getBandNames()[page].toUpperCase() + "  -  Envelope & Level");
+    g.setColour (kd::ui::bandColour (page));
+    g.fillRoundedRectangle (bandPanel.getX() + 8.0f, bandPanel.getY() + 6.0f, 18.0f, 6.0f, 2.0f);
+    {
+        const char* names[] { "Attack", "Length", "Decay", "Curve", "Fade", "Level" };
+        for (int k = 0; k < 6; ++k)
+        {
+            const float kx = bandPanel.getX() + 52.0f + k * 87.0f;
+            CustomLookAndFeel::drawSmallLabel (g, names[k], { kx - 40.0f, bandPanel.getY() + 96.0f, 80.0f, 14.0f });
+        }
+        CustomLookAndFeel::drawSmallLabel (g, "Attack", { bandPanel.getX() + 12.0f, bandPanel.getY() + 150.0f, 52.0f, 24.0f },
                                            Justification::centredLeft);
-        CustomLookAndFeel::drawSmallLabel (g, "Length", { c.panel.getX() + 8.0f, c.panel.getY() + 306.0f, 50.0f, 24.0f },
+        CustomLookAndFeel::drawSmallLabel (g, "Length", { bandPanel.getX() + 236.0f, bandPanel.getY() + 150.0f, 52.0f, 24.0f },
                                            Justification::centredLeft);
     }
 
-    CustomLookAndFeel::drawPanel (g, tailPanel, "Tail  -  Tuned Extension");
-    CustomLookAndFeel::drawSmallLabel (g, "Start", { tailPanel.getX() + 10.0f, tailPanel.getY() + 184.0f, 94.0f, 14.0f }, Justification::centredLeft);
-    CustomLookAndFeel::drawSmallLabel (g, "Root", { tailPanel.getX() + 112.0f, tailPanel.getY() + 66.0f, 58.0f, 14.0f }, Justification::centredLeft);
-    CustomLookAndFeel::drawSmallLabel (g, "Scale lock", { tailPanel.getX() + 174.0f, tailPanel.getY() + 66.0f, 116.0f, 14.0f }, Justification::centredLeft);
-
+    CustomLookAndFeel::drawPanel (g, outputPanel, "Output  -  1/4 Note");
+    CustomLookAndFeel::drawPanel (g, masterPanel, "Master");
     CustomLookAndFeel::drawPanel (g, satPanel, "Saturation");
     CustomLookAndFeel::drawPanel (g, compPanel, "Compressor");
-    CustomLookAndFeel::drawPanel (g, masterPanel, "Master");
-
-    g.setColour (VirusColours::bevelDark);
-    g.drawHorizontalLine ((int) compPanel.getY() + 160, compPanel.getX() + 108.0f, compPanel.getRight() - 8.0f);
-    g.setColour (Colours::white.withAlpha (0.07f));
-    g.drawHorizontalLine ((int) compPanel.getY() + 161, compPanel.getX() + 108.0f, compPanel.getRight() - 8.0f);
 }
 
 void KickDrumAudioProcessorEditor::Content::drawBackground (Graphics& g, Rectangle<float> b)

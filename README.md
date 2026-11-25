@@ -30,6 +30,17 @@ It appears as an instrument under **VirusDelay Project**. Any MIDI note plays th
   * Gentler slopes ring for less time; steeper slopes keep the bands more separate.
 * Moving a crossover re-splits the sample in the background; the new split takes over on the next block.
 
+## Layout
+
+One page per band in the big window in the middle: the tabs above it (**1 SUB, 2 BODY, 3 CLICK,
+4 AIR**) switch pages, and show each band's range, RMS and reference difference. A page has the
+band's display (its waveform after the envelope, the envelope line, the tail on Sub, the whole kick
+faintly behind, and a bar/beat grid when its Length is synced, else milliseconds), its level strip,
+its mini browser, and underneath its Attack / Length / Decay / Curve / Fade / Level with their values.
+The kick (Start / End and level references), the crossover and the tail are on the left; the output
+display and Master on the right; Saturation and the Compressor along the bottom. The page you were on
+is saved with the project.
+
 ## Bands
 
 Each band has:
@@ -124,7 +135,8 @@ FX and master volume), worked out from the kick itself so you don't need to play
 ## FX
 
 * **Saturation**: Soft, Tape, Tube, Hard Clip, Foldback, Fuzz, with Drive, Tone, Mix and Level.
-  4x oversampled with linear-phase FIR filters. The latency is constant whether it's on or off,
+  **4x OS** turns 4x oversampling (linear-phase FIR filters) on or off; off runs it at the host rate
+  (lighter on the CPU, more aliasing). The latency is constant whether it's on or off,
   and reported to the host, so the kick stays on the grid.
 * **Compressor**: clean feed-forward design (stereo-linked peak detector, 6 dB soft knee), with
   Threshold, Ratio, Attack, Release, Makeup, Mix and a gain-reduction meter.

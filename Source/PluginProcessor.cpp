@@ -50,6 +50,7 @@ struct KickDrumAudioProcessor::ParamPointers
         satOn = get (ParamIDs::satOn);       satType = get (ParamIDs::satType);
         satDrive = get (ParamIDs::satDrive); satTone = get (ParamIDs::satTone);
         satMix = get (ParamIDs::satMix);     satLevel = get (ParamIDs::satLevel);
+        satOversample = get (ParamIDs::satOversample);
 
         compOn = get (ParamIDs::compOn);           compThresh = get (ParamIDs::compThresh);
         compRatio = get (ParamIDs::compRatio);     compAttack = get (ParamIDs::compAttack);
@@ -71,7 +72,7 @@ struct KickDrumAudioProcessor::ParamPointers
     std::array<Band, kNumBands> bands {};
     std::atomic<float>* keyLock, *tailStartMode, *tailStartSync, *sampleStart, *sampleEnd;
     std::atomic<float>* tailOn, *tailKey, *tailRoot, *tailScale, *tailStart, *tailGlide, *tailLevel, *tuneBody;
-    std::atomic<float>* satOn, *satType, *satDrive, *satTone, *satMix, *satLevel;
+    std::atomic<float>* satOn, *satType, *satDrive, *satTone, *satMix, *satLevel, *satOversample;
     std::atomic<float>* compOn, *compThresh, *compRatio, *compAttack, *compRelease, *compMakeup, *compMix;
     std::atomic<float>* velSens, *volume, *bpm;
 };
@@ -195,6 +196,7 @@ SaturationSettings KickDrumAudioProcessor::makeSaturationSettings() const
     s.tone = val (params->satTone) * 0.01f;
     s.mix = val (params->satMix) * 0.01f;
     s.levelDb = val (params->satLevel);
+    s.oversample = on (params->satOversample);
     return s;
 }
 
@@ -408,6 +410,7 @@ void KickDrumAudioProcessor::getStateInformation (MemoryBlock& destData)
     ui.setProperty ("height", editorSize.y, nullptr);
     ui.setProperty (programId, currentProgram, nullptr);
     ui.setProperty ("levelReference", selectedReference, nullptr);
+    ui.setProperty ("page", selectedBand, nullptr);
     for (int i = 0; i <= kNumBands; ++i)
         ui.appendChild (browserToTree (browserStates[(size_t) i], i), nullptr);
     state.appendChild (ui, nullptr);
@@ -459,6 +462,7 @@ void KickDrumAudioProcessor::setStateInformation (const void* data, int sizeInBy
         editorSize = { (int) ui.getProperty ("width", 0), (int) ui.getProperty ("height", 0) };
         currentProgram = jlimit (0, getNumPrograms() - 1, (int) ui.getProperty (programId, 0));
         selectedReference = ui.getProperty ("levelReference", String()).toString();
+        setSelectedBand ((int) ui.getProperty ("page", 0));
         for (const auto& child : ui)
             if (child.hasType (browserTag))
                 treeToBrowser (child, browserStates[(size_t) jlimit (0, kNumBands, (int) child.getProperty ("index", 0))]);

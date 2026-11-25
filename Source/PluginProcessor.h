@@ -83,6 +83,9 @@ public:
     /** The band-level reference chosen in this project (a name from LevelReferences, or empty). */
     juce::String getSelectedReference() const           { return selectedReference; }
     void setSelectedReference (const juce::String& n)   { selectedReference = n; }
+    /** The band page shown in the big window (0..3). */
+    int getSelectedBand() const noexcept                { return selectedBand; }
+    void setSelectedBand (int b) noexcept               { selectedBand = juce::jlimit (0, kd::kNumBands - 1, b); }
     int getOpenBrowser() const noexcept                 { return openBrowser; }
     void setOpenBrowser (int index) noexcept            { openBrowser = index; }
 
@@ -109,6 +112,7 @@ private:
     juce::Point<int> editorSize;
     int openBrowser = -1;
     juce::String selectedReference;
+    int selectedBand = 0;
     juce::SharedResourcePointer<SampleLibrary> sampleLibrary;
     std::array<BrowserPanel::State, kd::kNumBands + 1> browserStates;
 

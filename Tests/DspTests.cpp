@@ -534,6 +534,36 @@ public:
             }
         }
 
+        beginTest ("Saturation with oversampling off: same latency, still saturates");
+        {
+            FxChain fx;
+            fx.prepare (48000.0, 512, 2);
+            const int latency = fx.getLatencySamples();
+            AudioBuffer<float> io (2, 4096);
+            for (int i = 0; i < 4096; ++i)
+                for (int ch = 0; ch < 2; ++ch)
+                    io.setSample (ch, i, 0.9f * (float) std::sin (i * 0.02));
+            const AudioBuffer<float> src (io);
+            SaturationSettings sat;
+            sat.on = true;
+            sat.oversample = false;
+            sat.type = 3;          // hard clip
+            sat.driveDb = 12.0f;
+            sat.mix = 1.0f;
+            CompressorSettings comp;
+            for (int pos = 0; pos < 4096; pos += 512)
+            {
+                AudioBuffer<float> block (io.getArrayOfWritePointers(), 2, pos, 512);
+                fx.process (block, sat, comp);
+            }
+            // hard clipped to 1.0, and aligned with the input delayed by the same latency
+            expectLessOrEqual (io.getMagnitude (0, 0, 4096), 1.0001f);
+            float worst = 0.0f;
+            for (int i = 1000; i < 4000; ++i)
+                worst = jmax (worst, std::abs (io.getSample (0, i) - jlimit (-1.0f, 1.0f, src.getSample (0, i - latency) * Decibels::decibelsToGain (12.0f))));
+            expectLessThan (worst, 0.05f);
+        }
+
         beginTest ("Saturation curves stay bounded and pass zero");
         for (int type = 0; type < 6; ++type)
         {

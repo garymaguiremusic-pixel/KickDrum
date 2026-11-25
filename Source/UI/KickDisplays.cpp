@@ -395,10 +395,11 @@ namespace kd::ui
             fill.closeSubPath();
 
             const auto c = bandColour (band);
-            g.setColour (c.withAlpha (0.16f));
+            const bool sel = selectedBand < 0 || band == selectedBand;
+            g.setColour (c.withAlpha (sel ? (selectedBand < 0 ? 0.16f : 0.28f) : 0.06f));
             g.fillPath (fill);
-            g.setColour (c.brighter (0.3f));
-            g.strokePath (curve, PathStrokeType (1.6f, PathStrokeType::curved, PathStrokeType::rounded));
+            g.setColour (c.withAlpha (sel ? 1.0f : 0.5f));
+            g.strokePath (curve, PathStrokeType (sel && selectedBand >= 0 ? 2.2f : 1.4f, PathStrokeType::curved, PathStrokeType::rounded));
         }
 
         // band names in the middle of each band
@@ -426,9 +427,11 @@ namespace kd::ui
 
         // header: the three frequencies and the slope
         auto header = b.reduced (7.0f, 3.0f).withHeight (13.0f);
-        drawScreenText (g, "CROSSOVER  " + formatHz (s.freqs[0]) + "  |  " + formatHz (s.freqs[1]) + "  |  " + formatHz (s.freqs[2]),
-                        header, Justification::centredLeft, 10.5f);
-        drawScreenText (g, getSlopeNames()[slopeIndex].toUpperCase() + "  LINEAR PHASE", header, Justification::centredRight, 10.0f,
+        if (getWidth() >= 380)     // narrow: the frequencies have their own fields underneath
+            drawScreenText (g, "CROSSOVER  " + formatHz (s.freqs[0]) + "  |  " + formatHz (s.freqs[1]) + "  |  " + formatHz (s.freqs[2]),
+                            header, Justification::centredLeft, 10.5f);
+        drawScreenText (g, getSlopeNames()[slopeIndex].toUpperCase() + (getWidth() >= 380 ? "  LINEAR PHASE" : ""), header,
+                        Justification::centredRight, 10.0f,
                         VirusColours::accent);
     }
 
@@ -498,7 +501,8 @@ namespace kd::ui
             && startFrac == o.startFrac && endFrac == o.endFrac && spanSeconds == o.spanSeconds && ratio == o.ratio
             && displayScale == o.displayScale && tailOn == o.tailOn && tailStart == o.tailStart && tailLevel == o.tailLevel
             && tailText == o.tailText && lengthText == o.lengthText && rangeText == o.rangeText && enabled == o.enabled
-            && inverted == o.inverted;
+            && inverted == o.inverted && ghost == o.ghost && beatGrid == o.beatGrid
+            && std::abs (beatSeconds - o.beatSeconds) < 1.0e-9;
     }
 
     BandView::BandView (int bandIndex) : band (bandIndex)
@@ -536,11 +540,61 @@ namespace kd::ui
         const float span = (float) jmax (0.05, state.spanSeconds);
         auto xForT = [&] (double t) { return inner.getX() + (float) (t / span) * inner.getWidth(); };
 
-        // time grid every 100 ms (every 500 ms when zoomed out)
-        const double gridStep = span > 2.0 ? 0.5 : 0.1;
-        g.setColour (Colours::white.withAlpha (0.08f));
-        for (double t = gridStep; t < span; t += gridStep)
-            g.drawVerticalLine ((int) xForT (t), inner.getY(), inner.getBottom());
+        // time grid: bars / beats / 16ths when the Length is synced, else milliseconds
+        g.setFont (CustomLookAndFeel::uiFont (9.5f, true));
+        if (state.beatGrid && state.beatSeconds > 0.0)
+        {
+            const double sixteenth = state.beatSeconds * 0.25;
+            const float sixteenthPx = (float) (sixteenth / span) * inner.getWidth();
+            for (int s = 1; s * sixteenth < span; ++s)
+            {
+                const bool bar = s % 16 == 0, beat = s % 4 == 0;
+                if (! beat && sixteenthPx < 6.0f)
+                    continue;
+                g.setColour (Colours::white.withAlpha (bar ? 0.3f : (beat ? 0.15f : 0.06f)));
+                g.drawVerticalLine ((int) xForT (s * sixteenth), inner.getY(), inner.getBottom());
+            }
+            for (int beat = 0; beat * state.beatSeconds < span; ++beat)
+            {
+                const auto label = beat % 4 == 0 ? String (beat / 4 + 1) : String (beat / 4 + 1) + "." + String (beat % 4 + 1);
+                g.setColour (VirusColours::lightGrey.withAlpha (beat % 4 == 0 ? 0.9f : 0.6f));
+                g.drawText (label, Rectangle<float> (xForT (beat * state.beatSeconds) + 3.0f, inner.getBottom() - 11.0f, 34.0f, 11.0f),
+                            Justification::centredLeft);
+            }
+        }
+        else
+        {
+            const double gridStep = span > 4.0 ? 1.0 : span > 2.0 ? 0.5 : span > 0.8 ? 0.2 : span > 0.3 ? 0.1
+                                  : span > 0.12 ? 0.05 : span > 0.05 ? 0.02 : 0.01;
+            for (int i = 1; i * gridStep < span; ++i)
+            {
+                const float x = xForT (i * gridStep);
+                g.setColour (Colours::white.withAlpha (0.08f));
+                g.drawVerticalLine ((int) x, inner.getY(), inner.getBottom());
+                g.setColour (VirusColours::lightGrey.withAlpha (0.6f));
+                g.drawText (formatMs ((float) (i * gridStep * 1000.0)), Rectangle<float> (x + 3.0f, inner.getBottom() - 11.0f, 50.0f, 11.0f),
+                            Justification::centredLeft);
+            }
+        }
+
+        // the whole kick, faintly behind the band
+        if (const auto& ghost = state.ghost; ghost != nullptr && ghost->seconds > 0.0 && ghost->peak > 0.0f)
+        {
+            Path p;
+            const int gw = (int) inner.getWidth();
+            const float gm = inner.getCentreY(), gh = inner.getHeight() * 0.5f, gs = 0.95f / ghost->peak;
+            for (int x = 0; x < gw; ++x)
+            {
+                const double srcT = state.startFrac * ghost->seconds + (double) x / gw * span * state.ratio;
+                if (srcT >= state.endFrac * ghost->seconds || srcT >= ghost->seconds)
+                    break;
+                const int bin = jlimit (0, Overview::kNumBins - 1, (int) (srcT / ghost->seconds * Overview::kNumBins));
+                const float hi = ghost->maxs[(size_t) bin] * gs, lo = ghost->mins[(size_t) bin] * gs;
+                p.addRectangle (inner.getX() + (float) x, gm - hi * gh, 1.0f, jmax (1.0f, (hi - lo) * gh));
+            }
+            g.setColour (VirusColours::lightGrey.withAlpha (0.08f));
+            g.fillPath (p);
+        }
 
         const float mid = inner.getCentreY();
         const float halfH = inner.getHeight() * 0.5f;
@@ -843,13 +897,22 @@ namespace kd::ui
 
         const double beats = hit->endSeconds / beatSeconds;
         drawScreenText (g, "OUTPUT", header, Justification::centredLeft, 10.5f);
-        drawScreenText (g, "LENGTH " + formatMs ((float) (hit->endSeconds * 1000.0)) + "  =  " + String (beats, 2)
-                               + (std::abs (beats - 1.0) < 0.005 ? " beat" : " beats")
-                               + "  (" + String (beats * 4.0, 1) + " x 1/16)"
-                               + "      PEAK " + formatDb (Decibels::gainToDecibels (hit->peak, -60.0f))
-                               + "      " + String (bpm, 1) + " BPM",
-                        header, Justification::centredRight, 10.5f,
-                        hit->peak > 1.0f ? VirusColours::red : VirusColours::accent);
+        if (getWidth() < 500)
+        {
+            // narrow: the length and peak have their own readouts underneath
+            drawScreenText (g, String (bpm, 1) + " BPM", header, Justification::centredRight, 10.5f,
+                            hit->peak > 1.0f ? VirusColours::red : VirusColours::accent);
+        }
+        else
+        {
+            drawScreenText (g, "LENGTH " + formatMs ((float) (hit->endSeconds * 1000.0)) + "  =  " + String (beats, 2)
+                                   + (std::abs (beats - 1.0) < 0.005 ? " beat" : " beats")
+                                   + "  (" + String (beats * 4.0, 1) + " x 1/16)"
+                                   + "      PEAK " + formatDb (Decibels::gainToDecibels (hit->peak, -60.0f))
+                                   + "      " + String (bpm, 1) + " BPM",
+                            header, Justification::centredRight, 10.5f,
+                            hit->peak > 1.0f ? VirusColours::red : VirusColours::accent);
+        }
     }
 
     //==============================================================================
@@ -980,6 +1043,82 @@ namespace kd::ui
             g.setColour (VirusColours::labelText);
             g.drawText ("REF MUTED", inner, Justification::centredRight);
         }
+    }
+
+    //==============================================================================
+    void BandTabs::setTab (int band, const Tab& t)
+    {
+        if (! (tabs[(size_t) band] == t))
+        {
+            tabs[(size_t) band] = t;
+            repaint();
+        }
+    }
+
+    Rectangle<float> BandTabs::tabBounds (int band) const
+    {
+        const float w = (float) getWidth() / (float) kNumBands;
+        auto r = Rectangle<float> (band * w, 0.0f, w, (float) getHeight()).reduced (2.0f, 0.0f);
+        return band == selected ? r : r.withTrimmedTop (4.0f);
+    }
+
+    void BandTabs::paint (Graphics& g)
+    {
+        const StringArray names { "SUB", "BODY", "CLICK", "AIR" };
+        for (int band = 0; band < kNumBands; ++band)
+        {
+            const bool sel = band == selected;
+            const auto r = tabBounds (band);
+            const auto& t = tabs[(size_t) band];
+
+            Path shape;
+            shape.addRoundedRectangle (r.getX(), r.getY(), r.getWidth(), r.getHeight() + 6.0f, 5.0f, 5.0f, true, true, false, false);
+            if (sel)
+                g.setGradientFill (ColourGradient (Colour (0xff2a2a2d), 0.0f, r.getY(), VirusColours::panelTop, 0.0f, r.getBottom(), false));
+            else
+                g.setGradientFill (ColourGradient (VirusColours::buttonOffTop, 0.0f, r.getY(), VirusColours::buttonOffBottom, 0.0f, r.getBottom(), false));
+            g.fillPath (shape);
+            g.setColour (Colours::white.withAlpha (sel ? 0.18f : 0.1f));
+            g.drawHorizontalLine ((int) r.getY() + 1, r.getX() + 5.0f, r.getRight() - 5.0f);
+            g.setColour (VirusColours::bevelDark);
+            g.strokePath (shape, PathStrokeType (1.0f));
+
+            auto inner = r.reduced (8.0f, 5.0f);
+            auto line1 = inner.removeFromTop (inner.getHeight() * 0.5f);
+            auto line2 = inner;
+
+            g.setColour (bandColour (band).withAlpha (sel ? 1.0f : 0.6f));
+            g.fillRoundedRectangle (line1.getX(), line1.getCentreY() - 2.5f, 16.0f, 5.0f, 2.0f);
+
+            g.setFont (CustomLookAndFeel::uiFont (12.5f, true));
+            g.setColour (sel ? Colours::white : VirusColours::labelText);
+            g.drawText (String (band + 1) + "  " + names[band], line1.withTrimmedLeft (22.0f), Justification::centredLeft, true);
+
+            g.setFont (CustomLookAndFeel::uiFont (9.5f, true));
+            const auto dim = VirusColours::dimText;
+            if (t.hasRef && t.measured && t.active)
+            {
+                g.setColour (sel ? (std::abs (t.refDiff) < 0.5f ? Colours::white : VirusColours::accent) : dim);
+                g.drawText ("REF " + String (t.refDiff > 0.0f ? "+" : "") + String (t.refDiff, 1), line1, Justification::centredRight);
+            }
+            g.setColour (sel ? VirusColours::accent : dim);
+            g.drawText (t.range, line2, Justification::centredLeft, true);
+            g.setColour (sel ? VirusColours::lightGrey : dim);
+            const String rms = ! t.measured ? String() : (! t.active ? String ("MUTED")
+                                                                     : "RMS " + (t.rmsDb <= -99.0f ? String ("-inf") : String (t.rmsDb, 1)));
+            g.drawText (rms, line2, Justification::centredRight);
+        }
+    }
+
+    void BandTabs::mouseDown (const MouseEvent& e)
+    {
+        for (int band = 0; band < kNumBands; ++band)
+            if (tabBounds (band).contains (e.position))
+            {
+                if (onSelect)
+                    onSelect (band);
+                return;
+            }
     }
 
     //==============================================================================

@@ -36,6 +36,7 @@ namespace kd
         inline constexpr const char* satTone  = "satTone";
         inline constexpr const char* satMix   = "satMix";
         inline constexpr const char* satLevel = "satLevel";
+        inline constexpr const char* satOversample = "satOversample";
 
         // Compressor
         inline constexpr const char* compOn      = "compOn";
@@ -328,6 +329,7 @@ namespace kd
         addFloat (ParamIDs::satTone, "Tone", { 0.0f, 100.0f }, 100.0f, formatPercent, "%");
         addFloat (ParamIDs::satMix, "Saturation Mix", { 0.0f, 100.0f }, 100.0f, formatPercent, "%");
         addFloat (ParamIDs::satLevel, "Saturation Level", { -24.0f, 6.0f }, 0.0f, formatDb, "dB");
+        addBool (ParamIDs::satOversample, "Saturation Oversampling", true);
 
         // Compressor -------------------------------------------------------------------
         addBool (ParamIDs::compOn, "Compressor On", false);

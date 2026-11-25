@@ -90,6 +90,9 @@ namespace kd::ui
         void mouseDoubleClick (const juce::MouseEvent&) override;
         void mouseExit (const juce::MouseEvent&) override;
 
+        /** Highlights one band's curve (the page shown in the big window). */
+        void setSelectedBand (int band)   { if (band != selectedBand) { selectedBand = band; repaint(); } }
+
     private:
         juce::Rectangle<float> plotArea() const;
         float xForFreq (double f) const;
@@ -102,7 +105,7 @@ namespace kd::ui
         std::unique_ptr<juce::ParameterAttachment> slopeAttachment;
         std::array<float, 3> freqs { 120.0f, 1000.0f, 10000.0f };
         int slopeIndex = 3;
-        int dragging = -1, hover = -1;
+        int dragging = -1, hover = -1, selectedBand = -1;
     };
 
     //==============================================================================
@@ -133,6 +136,9 @@ namespace kd::ui
             juce::String rangeText;         // e.g. "30 - 120 Hz"
             bool enabled = true;
             bool inverted = false;          // phase flipped: drawn upside down
+            std::shared_ptr<const Overview> ghost;   // the whole kick, drawn faintly behind
+            bool beatGrid = false;          // Length synced: bar/beat grid, else milliseconds
+            double beatSeconds = 0.5;
 
             bool operator== (const State&) const;
         };
@@ -225,6 +231,37 @@ namespace kd::ui
         BandLevel level;
         bool hasRef = false, refActive = false, measured = false;
         float refRms = -100.0f;
+    };
+
+    //==============================================================================
+    /** The four page tabs above the big window: name, range, RMS and the reference difference. */
+    class BandTabs : public juce::Component
+    {
+    public:
+        struct Tab
+        {
+            juce::String range;
+            bool measured = false, active = true, hasRef = false;
+            float rmsDb = -100.0f, refDiff = 0.0f;
+            bool operator== (const Tab& o) const
+            {
+                return range == o.range && measured == o.measured && active == o.active && hasRef == o.hasRef
+                    && std::abs (rmsDb - o.rmsDb) < 0.01f && std::abs (refDiff - o.refDiff) < 0.01f;
+            }
+        };
+
+        std::function<void (int)> onSelect;
+
+        void setSelected (int band)                { if (band != selected) { selected = band; repaint(); } }
+        int getSelected() const noexcept           { return selected; }
+        void setTab (int band, const Tab&);
+        void paint (juce::Graphics&) override;
+        void mouseDown (const juce::MouseEvent&) override;
+
+    private:
+        juce::Rectangle<float> tabBounds (int band) const;
+        int selected = 0;
+        std::array<Tab, kNumBands> tabs;
     };
 
     //==============================================================================

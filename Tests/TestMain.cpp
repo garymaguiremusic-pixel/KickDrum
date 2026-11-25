@@ -5,11 +5,12 @@
 
 //==============================================================================
 // Renders the editor to a PNG without a display:
-//   KickDrumTests --snapshot out.png [width] [preset] [browser index] [start %] [end %] [level reference]
+//   KickDrumTests --snapshot out.png [width] [preset] [browser index] [start %] [end %] [level reference] [page 0-3]
 static int writeSnapshot (const juce::File& file, int width, int preset, int browser, float startPct = 0.0f, float endPct = 100.0f,
-                          const juce::String& reference = {})
+                          const juce::String& reference = {}, int page = 0)
 {
     KickDrumAudioProcessor processor;
+    processor.setSelectedBand (page);
     processor.setSelectedReference (reference);
     if (preset > 0)
         processor.setCurrentProgram (preset);
@@ -49,7 +50,8 @@ int main (int argc, char* argv[])
                               argc > 5 ? juce::String (argv[5]).getIntValue() : -1,
                               argc > 6 ? juce::String (argv[6]).getFloatValue() : 0.0f,
                               argc > 7 ? juce::String (argv[7]).getFloatValue() : 100.0f,
-                              argc > 8 ? juce::String (argv[8]) : juce::String());
+                              argc > 8 ? juce::String (argv[8]) : juce::String(),
+                              argc > 9 ? juce::String (argv[9]).getIntValue() : 0);
 
     // print to stdout (the default goes to the debugger output on Windows, which CI can't see)
     struct ConsoleRunner : public juce::UnitTestRunner
